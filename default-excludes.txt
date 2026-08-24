@@ -1,0 +1,59 @@
+# =============================================================================
+# default-excludes.txt
+# Danh sách các thư mục/file sẽ TỰ ĐỘNG bị loại khi đóng zip dự án.
+# Đây là file cấu hình - KHÔNG phải code. Muốn thêm/bớt gì, sửa trực tiếp ở đây,
+# không cần đụng vào cleanzip.py.
+#
+# Quy tắc viết:
+#   - Mỗi dòng 1 pattern (tên thư mục, tên file, hoặc dùng * để khớp nhiều file)
+#   - Dòng bắt đầu bằng "#" là ghi chú, sẽ bị bỏ qua
+#   - Dòng trống cũng bị bỏ qua
+#   - Có thể xóa bớt dòng không cần, hoặc thêm dòng mới bất cứ lúc nào
+# =============================================================================
+
+# --- JavaScript / Node.js ---
+node_modules
+dist
+build
+.next
+.nuxt
+.turbo
+.parcel-cache
+out
+coverage
+.svelte-kit
+
+# --- Python ---
+__pycache__
+.venv
+venv
+env
+.pytest_cache
+.mypy_cache
+*.pyc
+*.pyo
+*.egg-info
+
+# --- Java / Gradle / Maven ---
+target
+.gradle
+
+# --- Rust (cũng dùng target/, đã khai ở trên) ---
+
+# --- PHP / Composer ---
+vendor
+
+# --- Version control / IDE / hệ điều hành ---
+.git
+.svn
+.hg
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# --- Log / cache chung ---
+*.log
+.cache
+tmp
+temp

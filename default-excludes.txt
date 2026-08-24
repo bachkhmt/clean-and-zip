@@ -14,7 +14,6 @@
 # --- JavaScript / Node.js ---
 node_modules
 dist
-build
 .next
 .nuxt
 .turbo
@@ -22,6 +21,32 @@ build
 out
 coverage
 .svelte-kit
+
+# --- Electron & Desktop App Build Outputs ---
+release
+dist-desktop
+workbench-build
+*.dmg
+*.exe
+*.app
+*.AppImage
+*.blockmap
+*.zip
+*.tar.gz
+
+# --- Database & Local Runtime Data ---
+data
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Environment Variables & Secrets ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
 
 # --- Python ---
 __pycache__
@@ -51,9 +76,15 @@ vendor
 .vscode
 .DS_Store
 Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
 
 # --- Log / cache chung ---
 *.log
 .cache
 tmp
 temp
+*.tmp
+*.temp
+.eslintcache
+.stylelintcache

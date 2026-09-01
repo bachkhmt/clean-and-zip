@@ -6,12 +6,50 @@
 #
 # Quy tắc viết:
 #   - Mỗi dòng 1 pattern (tên thư mục, tên file, hoặc dùng * để khớp nhiều file)
+#   - Có thể dùng "!" ở đầu dòng để GIỮ LẠI (whitelist), ví dụ: !.env.example
 #   - Dòng bắt đầu bằng "#" là ghi chú, sẽ bị bỏ qua
 #   - Dòng trống cũng bị bỏ qua
-#   - Có thể xóa bớt dòng không cần, hoặc thêm dòng mới bất cứ lúc nào
 # =============================================================================
 
-# --- JavaScript / Node.js ---
+# --- Whitelist ngoại lệ (Luôn giữ lại kể cả khi khớp rule bên dưới) ---
+!.env.example
+!.env.sample
+!.env.template
+
+# --- Secrets / Env / Credentials / Keys (BẢO MẬT) ---
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.cert
+*.crt
+id_rsa
+id_rsa*
+id_ed25519
+id_ed25519*
+id_ecdsa
+id_ecdsa*
+*credentials*.json
+*service-account*.json
+*client_secret*.json
+secrets.*
+*.secret
+
+# --- Electron / Desktop Build Output (Rất nặng, ~500MB - 1GB) ---
+release
+dist-desktop
+dist-electron
+workbench-build
+win-unpacked
+mac-unpacked
+linux-unpacked
+
+# --- JavaScript / Node.js / Frontend Build ---
 node_modules
 dist
 build
@@ -22,6 +60,16 @@ build
 out
 coverage
 .svelte-kit
+.pnpm-store
+.yarn/cache
+.yarn/unplugged
+
+# --- Local Runtime / Database test (data/, sqlite) ---
+data
+*.sqlite
+*.sqlite3
+*.db
+*.dump
 
 # --- Python ---
 __pycache__
@@ -32,18 +80,33 @@ env
 .mypy_cache
 *.pyc
 *.pyo
+*.pyd
 *.egg-info
+.tox
 
-# --- Java / Gradle / Maven ---
+# --- Java / Kotlin / Gradle / Maven ---
 target
 .gradle
+bin
 
-# --- Rust (cũng dùng target/, đã khai ở trên) ---
+# --- .NET / C# / C++ ---
+obj
+[Bb]in
+[Dd]ebug
+[Rr]elease
+*.suo
+*.user
+
+# --- Mobile (iOS / Android / Flutter) ---
+.dart_tool
+Pods
+.flutter-plugins
+.flutter-plugins-dependencies
 
 # --- PHP / Composer ---
 vendor
 
-# --- Version control / IDE / hệ điều hành ---
+# --- Version control / IDE / Hệ điều hành ---
 .git
 .svn
 .hg
@@ -51,9 +114,57 @@ vendor
 .vscode
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# --- Log / cache chung ---
+# --- Archives / File nén (tránh nén lồng nén) ---
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.gz
+*.iso
+
+# --- Heavy Media & Large Files ---
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wmv
+*.flv
+*.psd
+*.ai
+
+# --- AI Models / Large Weights ---
+*.safetensors
+*.pth
+*.pt
+*.onnx
+*.ckpt
+*.bin
+*.h5
+
+# --- Binaries / Executables / Installers ---
+*.exe
+*.msi
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.dll
+*.so
+*.dylib
+
+# --- Log / Temp / Debug files ---
 *.log
+*.log.*
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tmp
+*.temp
 .cache
 tmp
 temp

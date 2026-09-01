@@ -26,6 +26,13 @@ import sys
 import time
 import zipfile
 
+# Đảm bảo in tiếng Việt trên console Windows không bị lỗi UnicodeEncodeError
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_EXCLUDES_FILE = os.path.join(SCRIPT_DIR, "default-excludes.txt")
 
@@ -47,16 +54,22 @@ def load_excludes_file(path: str):
     return patterns
 
 
-def matches_any(name: str, rel_path: str, patterns) -> bool:
-    """Kiểm tra tên file/thư mục hoặc đường dẫn tương đối có khớp pattern nào không."""
+def is_excluded(name: str, rel_path: str, patterns) -> bool:
+    """Kiểm tra tên file/thư mục có bị loại trừ không, hỗ trợ pattern whitelist bắt đầu bằng '!' (vd: !.env.example)."""
     rel_norm = rel_path.replace("\\", "/")
+
+    # Nếu khớp quy tắc whitelist (!), luôn giữ lại
     for pat in patterns:
-        if fnmatch.fnmatch(name, pat):
-            return True
-        if fnmatch.fnmatch(rel_norm, pat):
-            return True
-        if pat in rel_norm.split("/"):
-            return True
+        if pat.startswith("!"):
+            wpat = pat[1:]
+            if fnmatch.fnmatch(name, wpat) or fnmatch.fnmatch(rel_norm, wpat) or wpat in rel_norm.split("/"):
+                return False
+
+    # Kiểm tra quy tắc loại trừ
+    for pat in patterns:
+        if not pat.startswith("!"):
+            if fnmatch.fnmatch(name, pat) or fnmatch.fnmatch(rel_norm, pat) or pat in rel_norm.split("/"):
+                return True
     return False
 
 
@@ -87,7 +100,7 @@ def collect_files(source_dir: str, patterns, verbose_skip=False):
         new_dirs = []
         for d in dirs:
             rel_path = os.path.join(rel_root, d) if rel_root else d
-            if matches_any(d, rel_path, patterns):
+            if is_excluded(d, rel_path, patterns):
                 skipped_dirs.append(rel_path)
                 if verbose_skip:
                     print(f"  [-] bỏ qua thư mục: {rel_path}/")
@@ -98,7 +111,7 @@ def collect_files(source_dir: str, patterns, verbose_skip=False):
         for fname in files:
             rel_path = os.path.join(rel_root, fname) if rel_root else fname
             full_path = os.path.join(root, fname)
-            if matches_any(fname, rel_path, patterns):
+            if is_excluded(fname, rel_path, patterns):
                 if verbose_skip:
                     print(f"  [-] bỏ qua file: {rel_path}")
                 try:

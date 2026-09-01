@@ -52,7 +52,6 @@ linux-unpacked
 # --- JavaScript / Node.js / Frontend Build ---
 node_modules
 dist
-build
 .next
 .nuxt
 .turbo
@@ -70,6 +69,32 @@ data
 *.sqlite3
 *.db
 *.dump
+
+# --- Electron & Desktop App Build Outputs ---
+release
+dist-desktop
+workbench-build
+*.dmg
+*.exe
+*.app
+*.AppImage
+*.blockmap
+*.zip
+*.tar.gz
+
+# --- Database & Local Runtime Data ---
+data
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Environment Variables & Secrets ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
 
 # --- Python ---
 __pycache__
@@ -114,7 +139,12 @@ vendor
 .vscode
 .DS_Store
 Thumbs.db
+<<<<<<< HEAD
 desktop.ini
+=======
+ehthumbs.db
+[Dd]esktop.ini
+>>>>>>> d12e7a6a0b6faf3448185102b00b2f401aee402c
 
 # --- Archives / File nén (tránh nén lồng nén) ---
 *.zip
@@ -167,4 +197,12 @@ pnpm-debug.log*
 *.temp
 .cache
 tmp
+<<<<<<< HEAD
 temp
+=======
+temp
+*.tmp
+*.temp
+.eslintcache
+.stylelintcache
+>>>>>>> d12e7a6a0b6faf3448185102b00b2f401aee402c

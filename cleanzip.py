@@ -33,8 +33,15 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_EXCLUDES_FILE = os.path.join(SCRIPT_DIR, "default-excludes.txt")
+if getattr(sys, "frozen", False):
+    exe_dir = os.path.dirname(sys.executable)
+    if os.path.isfile(os.path.join(exe_dir, "default-excludes.txt")):
+        DEFAULT_EXCLUDES_FILE = os.path.join(exe_dir, "default-excludes.txt")
+    else:
+        DEFAULT_EXCLUDES_FILE = os.path.join(getattr(sys, "_MEIPASS", exe_dir), "default-excludes.txt")
+else:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    DEFAULT_EXCLUDES_FILE = os.path.join(SCRIPT_DIR, "default-excludes.txt")
 
 
 def load_excludes_file(path: str):
@@ -129,6 +136,94 @@ def collect_files(source_dir: str, patterns, verbose_skip=False):
     return kept, size_kept, size_skipped, skipped_dirs
 
 
+def get_downloads_folder() -> str:
+    """Trả về đường dẫn thư mục Downloads của hệ điều hành."""
+    if sys.platform == "win32":
+        try:
+            import winreg
+            sub_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub_key) as key:
+                val, _ = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")
+                if os.path.isdir(val):
+                    return val
+        except Exception:
+            pass
+    downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(downloads, exist_ok=True)
+    return downloads
+
+
+def zip_project(
+    source_dir: str,
+    output_path: str = None,
+    excludes_file: str = DEFAULT_EXCLUDES_FILE,
+    extra_excludes: list = None,
+    progress_callback=None,
+    dry_run: bool = False,
+    verbose: bool = False,
+):
+    """
+    Nén dự án sau khi lọc các file/thư mục loại trừ.
+    Hỗ trợ progress_callback(stage, current, total, message) phục vụ GUI.
+    """
+    source_dir = os.path.abspath(source_dir)
+    if not os.path.isdir(source_dir):
+        raise FileNotFoundError(f"Không tìm thấy thư mục: {source_dir}")
+
+    patterns = load_excludes_file(excludes_file)
+    if extra_excludes:
+        patterns.extend(extra_excludes)
+
+    project_name = os.path.basename(source_dir.rstrip(os.sep)) or "project"
+
+    if progress_callback:
+        progress_callback("scan", 0, 0, f"Đang quét thư mục dự án: {project_name}...")
+
+    kept, size_kept, size_skipped, skipped_dirs = collect_files(
+        source_dir, patterns, verbose_skip=verbose
+    )
+
+    total_files = len(kept)
+
+    if not output_path:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(os.getcwd(), f"{project_name}_clean_{timestamp}.zip")
+    else:
+        output_path = os.path.abspath(output_path)
+
+    out_size = 0
+    if not dry_run:
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        if progress_callback:
+            progress_callback("compress", 0, total_files, f"Bắt đầu nén {total_files} files...")
+
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            for idx, (full_path, rel_path) in enumerate(kept, start=1):
+                arcname = os.path.join(project_name, rel_path)
+                zf.write(full_path, arcname)
+                if progress_callback and (idx % 10 == 0 or idx == total_files):
+                    progress_callback("compress", idx, total_files, f"Đang nén ({idx}/{total_files}): {rel_path}")
+
+        out_size = os.path.getsize(output_path)
+
+    result = {
+        "project_name": project_name,
+        "source_dir": source_dir,
+        "output_path": output_path,
+        "kept_count": total_files,
+        "kept_size": size_kept,
+        "skipped_size": size_skipped,
+        "skipped_dirs_count": len(skipped_dirs),
+        "skipped_dirs": skipped_dirs,
+        "compressed_size": out_size,
+    }
+
+    if progress_callback:
+        progress_callback("done", total_files, total_files, "Hoàn tất nén dự án!")
+
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Đóng zip 1 dự án, tự động loại bỏ node_modules, .git, venv... theo file default-excludes.txt",
@@ -148,47 +243,37 @@ def main():
         print(f"[x] Không tìm thấy thư mục: {source_dir}", file=sys.stderr)
         sys.exit(1)
 
-    patterns = load_excludes_file(args.excludes_file)
-    patterns.extend(args.exclude)
-
     project_name = os.path.basename(source_dir.rstrip(os.sep)) or "project"
-
     print(f"[*] Dự án        : {source_dir}")
     print(f"[*] File loại trừ : {args.excludes_file}")
-    print(f"[*] Số pattern    : {len(patterns)}")
-    print()
 
-    kept, size_kept, size_skipped, skipped_dirs = collect_files(
-        source_dir, patterns, verbose_skip=args.verbose
+    if args.output:
+        out_path = os.path.abspath(args.output)
+    else:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        out_path = os.path.join(os.getcwd(), f"{project_name}_clean_{timestamp}.zip")
+
+    res = zip_project(
+        source_dir=source_dir,
+        output_path=out_path,
+        excludes_file=args.excludes_file,
+        extra_excludes=args.exclude,
+        dry_run=args.dry_run,
+        verbose=args.verbose,
     )
 
-    print(f"[*] Giữ lại : {len(kept)} file  (~{human_size(size_kept)})")
-    print(f"[*] Bỏ qua  : {len(skipped_dirs)} thư mục  (~{human_size(size_skipped)} tiết kiệm được)")
-    if skipped_dirs and not args.verbose:
-        preview = ", ".join(skipped_dirs[:8])
-        more = f" (+{len(skipped_dirs) - 8} thư mục khác)" if len(skipped_dirs) > 8 else ""
+    print(f"[*] Giữ lại : {res['kept_count']} file  (~{human_size(res['kept_size'])})")
+    print(f"[*] Bỏ qua  : {res['skipped_dirs_count']} thư mục  (~{human_size(res['skipped_size'])} tiết kiệm được)")
+    if res['skipped_dirs'] and not args.verbose:
+        preview = ", ".join(res['skipped_dirs'][:8])
+        more = f" (+{len(res['skipped_dirs']) - 8} thư mục khác)" if len(res['skipped_dirs']) > 8 else ""
         print(f"    -> {preview}{more}")
 
     if args.dry_run:
         print("\n[dry-run] Không tạo file zip.")
         return
 
-    if args.output:
-        output_path = os.path.abspath(args.output)
-    else:
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(os.getcwd(), f"{project_name}_clean_{timestamp}.zip")
-
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-
-    print(f"\n[*] Đang nén -> {output_path}")
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-        for full_path, rel_path in kept:
-            arcname = os.path.join(project_name, rel_path)
-            zf.write(full_path, arcname)
-
-    out_size = os.path.getsize(output_path)
-    print(f"[+] Xong! File zip: {output_path}  ({human_size(out_size)})")
+    print(f"\n[+] Xong! File zip: {res['output_path']}  ({human_size(res['compressed_size'])})")
 
 
 if __name__ == "__main__":

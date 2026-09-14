@@ -1,2 +1,19 @@
+# Build and release artifacts (PyInstaller)
+dist/
+build/
+*.spec
+
+# Python cache and environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# Compressed zip files
 *.zip
-./vscode
+
+# Editor and IDE
+.vscode/
+.idea/

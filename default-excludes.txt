@@ -15,11 +15,25 @@
 !.env.example
 !.env.sample
 !.env.template
+!.env.defaults
+!.env.schema
 
-# --- Secrets / Env / Credentials / Keys (BẢO MẬT) ---
+# =============================================================================
+# 🔐 BẢO MẬT — Secrets / Env / Credentials / Keys / Tokens
+# =============================================================================
+
+# --- Biến môi trường (.env) ---
 .env
 .env.*
 *.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.staging
+.flaskenv
+
+# --- Private Keys & Certificates ---
 *.pem
 *.key
 *.keystore
@@ -28,28 +42,84 @@
 *.pfx
 *.cert
 *.crt
+*.ca-bundle
+
+# --- SSH Keys ---
 id_rsa
 id_rsa*
 id_ed25519
 id_ed25519*
 id_ecdsa
 id_ecdsa*
+known_hosts
+authorized_keys
+.ssh
+
+# --- GCP / Firebase / Google Cloud ---
 *credentials*.json
 *service-account*.json
 *client_secret*.json
+firebase-adminsdk*.json
+*-firebase-adminsdk-*.json
+google-credentials.json
+gcloud-service-key.json
+
+# --- AWS ---
+.aws
+aws-credentials
+*.aws-credentials
+
+# --- Docker secrets ---
+.docker
+
+# --- Terraform (chứa secrets infrastructure) ---
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform
+.terraform.lock.hcl
+
+# --- npm / yarn / pnpm tokens (có thể chứa registry auth token) ---
+.npmrc
+.yarnrc
+.yarnrc.yml
+
+# --- Generic secrets & tokens ---
 secrets.*
 *.secret
+*.secrets
+*.token
+token.txt
+token.json
+auth.json
+api_key*
+apikey*
+secret_key*
 
-# --- Electron / Desktop Build Output (Rất nặng, ~500MB - 1GB) ---
-release
-dist-desktop
-dist-electron
-workbench-build
-win-unpacked
-mac-unpacked
-linux-unpacked
+# --- Shell / CLI history (có thể chứa mật khẩu đã gõ) ---
+.bash_history
+.zsh_history
+.python_history
+.node_repl_history
+.psql_history
+.mysql_history
+.irb_history
 
-# --- JavaScript / Node.js / Frontend Build ---
+# --- Password managers / vaults ---
+*.kdbx
+*.kdb
+vault.yml
+vault.yaml
+*vault*.yml
+*vault*.yaml
+
+# --- Kubernetes secrets ---
+kubeconfig
+.kube
+
+# =============================================================================
+# 📦 JavaScript / Node.js / Frontend Build
+# =============================================================================
 node_modules
 dist
 .next
@@ -63,40 +133,20 @@ coverage
 .yarn/cache
 .yarn/unplugged
 
-# --- Local Runtime / Database test (data/, sqlite) ---
-data
-*.sqlite
-*.sqlite3
-*.db
-*.dump
-
-# --- Electron & Desktop App Build Outputs ---
+# =============================================================================
+# 🖥️ Electron / Desktop Build Output (Rất nặng, ~500MB - 1GB)
+# =============================================================================
 release
 dist-desktop
+dist-electron
 workbench-build
-*.dmg
-*.exe
-*.app
-*.AppImage
-*.blockmap
-*.zip
-*.tar.gz
+win-unpacked
+mac-unpacked
+linux-unpacked
 
-# --- Database & Local Runtime Data ---
-data
-*.sqlite
-*.sqlite3
-*.db
-
-# --- Environment Variables & Secrets ---
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.*
-
-# --- Python ---
+# =============================================================================
+# 🐍 Python
+# =============================================================================
 __pycache__
 .venv
 venv
@@ -109,12 +159,16 @@ env
 *.egg-info
 .tox
 
-# --- Java / Kotlin / Gradle / Maven ---
+# =============================================================================
+# ☕ Java / Kotlin / Gradle / Maven
+# =============================================================================
 target
 .gradle
 bin
 
-# --- .NET / C# / C++ ---
+# =============================================================================
+# 🔵 .NET / C# / C++
+# =============================================================================
 obj
 [Bb]in
 [Dd]ebug
@@ -122,16 +176,22 @@ obj
 *.suo
 *.user
 
-# --- Mobile (iOS / Android / Flutter) ---
+# =============================================================================
+# 📱 Mobile (iOS / Android / Flutter)
+# =============================================================================
 .dart_tool
 Pods
 .flutter-plugins
 .flutter-plugins-dependencies
 
-# --- PHP / Composer ---
+# =============================================================================
+# 🐘 PHP / Composer
+# =============================================================================
 vendor
 
-# --- Version control / IDE / Hệ điều hành ---
+# =============================================================================
+# 🔧 Version Control / IDE / Hệ Điều Hành
+# =============================================================================
 .git
 .svn
 .hg
@@ -139,14 +199,12 @@ vendor
 .vscode
 .DS_Store
 Thumbs.db
-<<<<<<< HEAD
-desktop.ini
-=======
 ehthumbs.db
 [Dd]esktop.ini
->>>>>>> d12e7a6a0b6faf3448185102b00b2f401aee402c
 
-# --- Archives / File nén (tránh nén lồng nén) ---
+# =============================================================================
+# 🗜️ Archives / File Nén (tránh nén lồng nén)
+# =============================================================================
 *.zip
 *.tar
 *.tar.gz
@@ -156,7 +214,9 @@ ehthumbs.db
 *.gz
 *.iso
 
-# --- Heavy Media & Large Files ---
+# =============================================================================
+# 🎬 Heavy Media & Large Files
+# =============================================================================
 *.mp4
 *.mov
 *.avi
@@ -166,7 +226,9 @@ ehthumbs.db
 *.psd
 *.ai
 
-# --- AI Models / Large Weights ---
+# =============================================================================
+# 🤖 AI Models / Large Weights
+# =============================================================================
 *.safetensors
 *.pth
 *.pt
@@ -175,7 +237,9 @@ ehthumbs.db
 *.bin
 *.h5
 
-# --- Binaries / Executables / Installers ---
+# =============================================================================
+# 💾 Binaries / Executables / Installers
+# =============================================================================
 *.exe
 *.msi
 *.dmg
@@ -185,8 +249,22 @@ ehthumbs.db
 *.dll
 *.so
 *.dylib
+*.app
+*.AppImage
+*.blockmap
 
-# --- Log / Temp / Debug files ---
+# =============================================================================
+# 🗄️ Database & Local Runtime Data
+# =============================================================================
+data
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+
+# =============================================================================
+# 📝 Log / Temp / Debug / Cache
+# =============================================================================
 *.log
 *.log.*
 npm-debug.log*
@@ -197,12 +275,6 @@ pnpm-debug.log*
 *.temp
 .cache
 tmp
-<<<<<<< HEAD
 temp
-=======
-temp
-*.tmp
-*.temp
 .eslintcache
 .stylelintcache
->>>>>>> d12e7a6a0b6faf3448185102b00b2f401aee402c

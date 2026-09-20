@@ -32,7 +32,9 @@ zip-folder/
 ├── 🖥️ GIAO DIỆN & KHỞI CHẠY
 │   ├── gui.py                  # Giao diện Desktop UI hiện đại (CustomTkinter)
 │   ├── run_gui.bat             # File khởi chạy nhanh giao diện trên Windows (nhấp đúp chuột)
-│   └── build_exe.bat           # Script tự động đóng gói ứng dụng thành file CleanZip.exe
+│   ├── run_gui.sh              # File khởi chạy nhanh giao diện trên macOS/Linux (./run_gui.sh)
+│   ├── build_exe.bat           # Script tự động đóng gói ứng dụng thành file CleanZip.exe (Windows)
+│   └── build_mac.sh            # Script tự động đóng gói ứng dụng thành CleanZip.app (macOS/Linux)
 │
 ├── ⚙️ CORE LOGIC & CLI
 │   ├── cleanzip.py             # Module xử lý nén chính, lọc file và hỗ trợ chạy dòng lệnh CLI
@@ -57,7 +59,9 @@ zip-folder/
 | **`cleanzip.py`** | Source Code | Chứa core logic: quét cây thư mục (`collect_files`), kiểm tra whitelist/blacklist (`is_excluded`), tính toán dung lượng (`human_size`), nén zip và hỗ trợ giao diện dòng lệnh (CLI). |
 | **`default-excludes.txt`** | Config Text | File cấu hình các thư mục và đuôi file bị loại bỏ khi nén. Bạn có thể mở và chỉnh sửa trực tiếp bằng Notepad/VS Code mà không cần động vào mã nguồn Python. |
 | **`run_gui.bat`** | Windows Batch | Giúp người dùng Windows khởi chạy ứng dụng Desktop ngay lập tức bằng cách click đúp chuột mà không cần gõ lệnh terminal. |
+| **`run_gui.sh`** | Shell Script | Bản tương đương `run_gui.bat` cho macOS/Linux — chạy `./run_gui.sh` trong Terminal để khởi chạy giao diện trực tiếp từ source. |
 | **`build_exe.bat`** | Windows Batch | Tự động cài đặt `pyinstaller` (nếu thiếu) và đóng gói toàn bộ dự án thành file thực thi độc lập `CleanZip.exe` nằm trong thư mục `dist/`. |
+| **`build_mac.sh`** | Shell Script | Bản tương đương `build_exe.bat` cho macOS/Linux — đóng gói thành `CleanZip.app` (macOS) hoặc file thực thi (Linux) trong thư mục `dist/`. |
 | **`requirements.txt`** | Config | Khai báo các thư viện Python: `customtkinter` (UI hiện đại) và `darkdetect` (tự động khớp Dark/Light mode hệ điều hành). |
 | **`.gitignore`** | Git Config | Chặn các file build phát sinh rất nặng (`dist/`, `build/`, `*.spec`, các file `*.zip` sinh ra) để giữ cho Git repository luôn nhẹ và sạch. |
 
@@ -68,8 +72,13 @@ zip-folder/
 ### Cách 1: Sử Dụng Giao Diện Desktop App (Khuyên dùng)
 
 #### 1. Khởi chạy
-- **Cách nhanh nhất**: Nhấp đúp vào biểu tượng shortcut **`CleanZip`** trên màn hình chính Desktop (hoặc nhấp đúp vào file **`run_gui.bat`** trong thư mục dự án).
-- Hoặc khởi chạy bằng terminal:
+- **Windows**: Nhấp đúp vào biểu tượng shortcut **`CleanZip`** trên Desktop, hoặc nhấp đúp vào file **`run_gui.bat`** trong thư mục dự án.
+- **macOS / Linux**: Mở Terminal tại thư mục dự án và chạy:
+  ```bash
+  chmod +x run_gui.sh   # chỉ cần làm 1 lần đầu tiên
+  ./run_gui.sh
+  ```
+- Hoặc khởi chạy trực tiếp bằng Python trên bất kỳ hệ điều hành nào:
   ```bash
   python gui.py
   ```
@@ -80,7 +89,7 @@ zip-folder/
 3. **Xem kết quả & Lấy file**:
    - File `.zip` sạch sẽ được **tự động lưu vào thư mục `Downloads`** của máy tính bạn theo định dạng `<tên_dự_án>_clean_<thời_gian>.zip`.
    - Hiển thị đầy đủ thông tin: dung lượng file zip, số file đã giữ, dung lượng tiết kiệm được từ việc loại bỏ các file nặng (`node_modules`, `.git`...).
-   - Bấm nút **"📂 Mở Thư Mục Downloads"** để xem ngay file zip trong Windows Explorer.
+   - Bấm nút **"📂 Mở Thư Mục Downloads"** để xem ngay file zip trong Explorer (Windows) / Finder (macOS) / trình quản lý file mặc định (Linux).
 
 ---
 
@@ -151,10 +160,29 @@ venv
 
 ---
 
-## 📦 Đóng Gói Thành Ứng Dụng Độc Lập (`.exe`)
+## 📦 Đóng Gói Thành Ứng Dụng Độc Lập (`.exe` / `.app`)
 
-Khi bạn muốn xuất xưởng tool thành 1 file chạy `.exe` độc lập mang sang máy tính khác mà không cần cài đặt Python:
+Khi bạn muốn xuất xưởng tool thành 1 ứng dụng độc lập mang sang máy khác mà không cần cài Python:
 
+### Windows (`.exe`)
 1. Nhấp đúp chuột vào file **`build_exe.bat`**.
 2. Script sẽ tự động đóng gói ứng dụng qua PyInstaller.
 3. Sau khi hoàn thành, file **`CleanZip.exe`** sẽ nằm sẵn trong thư mục `dist/`.
+
+### macOS (`.app`)
+1. Mở Terminal tại thư mục dự án, cấp quyền chạy 1 lần đầu và chạy script:
+   ```bash
+   chmod +x build_mac.sh
+   ./build_mac.sh
+   ```
+2. Sau khi hoàn thành, ứng dụng **`CleanZip.app`** sẽ nằm sẵn trong thư mục `dist/`. Có thể kéo thả vào thư mục `Applications` để dùng như app thông thường.
+3. **Lưu ý quan trọng**: vì `.app` này không được ký (code sign) bằng chứng chỉ Apple Developer trả phí, lần mở đầu tiên macOS Gatekeeper sẽ chặn với cảnh báo "không xác định được nhà phát triển". Cách mở:
+   - **Cách 1 (khuyên dùng)**: Chuột phải (hoặc `Control` + click) vào `CleanZip.app` → chọn **Open** → xác nhận **Open** ở hộp thoại hiện ra. Chỉ cần làm 1 lần, những lần sau mở bình thường.
+   - **Cách 2**: Chạy lệnh sau trong Terminal rồi mở lại như bình thường:
+     ```bash
+     xattr -cr dist/CleanZip.app
+     ```
+   - Đây **không phải lỗi của ứng dụng** — mọi app macOS chưa ký đều bị chặn kiểu này, kể cả app tự build từ chính mã nguồn của bạn.
+
+### Linux (thực thi trực tiếp)
+Chạy `./build_mac.sh` như trên (dùng chung script) — kết quả là file thực thi `dist/CleanZip` (có thể cần `chmod +x dist/CleanZip` trước khi chạy).

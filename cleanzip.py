@@ -44,6 +44,15 @@ else:
     DEFAULT_EXCLUDES_FILE = os.path.join(SCRIPT_DIR, "default-excludes.txt")
 
 
+MEDIA_EXTENSIONS = {
+    "*.mp3", "*.wav", "*.flac", "*.aac", "*.ogg", "*.wma", "*.m4a", "*.opus",
+    "*.aiff", "*.aif", "*.mid", "*.midi", "*.ac3", "*.amr", "*.ape", "*.au",
+    "*.cda", "*.dts", "*.ra", "*.voc", "*.wv",
+    "*.mp4", "*.mov", "*.avi", "*.mkv", "*.wmv", "*.flv", "*.webm", "*.m4v",
+    "*.mpg", "*.mpeg", "*.3gp"
+}
+
+
 def load_excludes_file(path: str):
     """Đọc danh sách pattern loại trừ từ file .txt (mỗi dòng 1 pattern, # là comment)."""
     if not os.path.isfile(path):
@@ -80,6 +89,20 @@ def is_excluded(name: str, rel_path: str, patterns) -> bool:
     return False
 
 
+def _dir_size(path: str) -> int:
+    """Tính nhanh tổng dung lượng 1 thư mục (chỉ để phục vụ thống kê 'tiết kiệm được',
+    KHÔNG mở nội dung file, chỉ gọi os.path.getsize nên vẫn rất nhanh kể cả với
+    thư mục nhiều file như node_modules)."""
+    total = 0
+    for root, _dirs, files in os.walk(path, onerror=lambda e: None):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return total
+
+
 def human_size(num_bytes: float) -> str:
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if num_bytes < 1024:
@@ -109,6 +132,7 @@ def collect_files(source_dir: str, patterns, verbose_skip=False):
             rel_path = os.path.join(rel_root, d) if rel_root else d
             if is_excluded(d, rel_path, patterns):
                 skipped_dirs.append(rel_path)
+                size_skipped += _dir_size(os.path.join(root, d))
                 if verbose_skip:
                     print(f"  [-] bỏ qua thư mục: {rel_path}/")
             else:
@@ -158,6 +182,7 @@ def zip_project(
     output_path: str = None,
     excludes_file: str = DEFAULT_EXCLUDES_FILE,
     extra_excludes: list = None,
+    include_media: bool = False,
     progress_callback=None,
     dry_run: bool = False,
     verbose: bool = False,
@@ -173,6 +198,8 @@ def zip_project(
     patterns = load_excludes_file(excludes_file)
     if extra_excludes:
         patterns.extend(extra_excludes)
+    if include_media:
+        patterns = [p for p in patterns if p.lower() not in MEDIA_EXTENSIONS]
 
     project_name = os.path.basename(source_dir.rstrip(os.sep)) or "project"
 
@@ -197,14 +224,24 @@ def zip_project(
         if progress_callback:
             progress_callback("compress", 0, total_files, f"Bắt đầu nén {total_files} files...")
 
+        failed = []
         with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             for idx, (full_path, rel_path) in enumerate(kept, start=1):
                 arcname = os.path.join(project_name, rel_path)
-                zf.write(full_path, arcname)
+                try:
+                    zf.write(full_path, arcname)
+                except OSError as e:
+                    # File bị khóa / không đủ quyền đọc / đường dẫn quá dài (hay gặp trên
+                    # Windows)... -> bỏ qua file này, không để crash cả quá trình nén.
+                    failed.append(rel_path)
+                    if verbose:
+                        print(f"  [!] bỏ qua (lỗi khi đọc): {rel_path} — {e}")
                 if progress_callback and (idx % 10 == 0 or idx == total_files):
                     progress_callback("compress", idx, total_files, f"Đang nén ({idx}/{total_files}): {rel_path}")
 
         out_size = os.path.getsize(output_path)
+        if failed:
+            print(f"[!] {len(failed)} file bị bỏ qua do lỗi đọc (xem --verbose để biết chi tiết)", file=sys.stderr)
 
     result = {
         "project_name": project_name,
@@ -216,6 +253,7 @@ def zip_project(
         "skipped_dirs_count": len(skipped_dirs),
         "skipped_dirs": skipped_dirs,
         "compressed_size": out_size,
+        "failed_count": len(failed) if not dry_run else 0,
     }
 
     if progress_callback:
@@ -233,6 +271,7 @@ def main():
     parser.add_argument("-o", "--output", help="Đường dẫn file zip đầu ra (mặc định: <tên_dự_án>_clean_<timestamp>.zip)")
     parser.add_argument("-e", "--exclude", nargs="*", default=[], help="Thêm pattern loại trừ tạm thời, chỉ áp dụng cho lần chạy này")
     parser.add_argument("--excludes-file", default=DEFAULT_EXCLUDES_FILE, help="Dùng file danh sách loại trừ khác thay vì default-excludes.txt")
+    parser.add_argument("--include-media", action="store_true", help="Giữ lại file audio/video thay vì loại bỏ")
     parser.add_argument("--dry-run", action="store_true", help="Chỉ liệt kê, không tạo file zip")
     parser.add_argument("--verbose", action="store_true", help="In chi tiết các file/thư mục bị bỏ qua")
 
@@ -258,6 +297,7 @@ def main():
         output_path=out_path,
         excludes_file=args.excludes_file,
         extra_excludes=args.exclude,
+        include_media=args.include_media,
         dry_run=args.dry_run,
         verbose=args.verbose,
     )

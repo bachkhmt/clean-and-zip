@@ -6,6 +6,21 @@
 
 ---
 
+## 🚀 Các Tính Năng Nâng Cấp Nổi Bật (v2.1 Pro)
+
+- **🎨 Chuyển đổi Theme Tức Thì**: Hỗ trợ chuyển đổi nhanh giữa chế độ Tối (Dark), Sáng (Light) hoặc Theo hệ thống (System) ngay trên thanh tiêu đề.
+- **🕒 Lịch sử Dự Án Gần Đây**: Tự động lưu lại 5 dự án gần nhất, cho phép chọn lại chỉ bằng 1 cú nhấp chuột mà không cần tìm lại thư mục.
+- **⚙️ Tùy chọn Linh Hoạt**:
+  - *Bỏ qua file Media (Video & Audio)*: Mặc định bật để tối ưu dung lượng, có thể bỏ tick nếu dự án cần giữ lại tài nguyên âm thanh/video.
+  - *Tự động mở Downloads*: Tự động mở File Explorer và highlight file zip ngay khi nén xong.
+- **⚡ Mở Trực Tiếp File Zip**: Nút mở thẳng file zip bằng trình xem mặc định của Windows bên cạnh nút mở thư mục.
+- **❌ Nút Xóa Nhanh**: Dọn sạch ô nhập đường dẫn chỉ với 1 click để dán dự án mới.
+- **📊 Tính Chuẩn Dung Lượng Tiết Kiệm**: Tính toán chính xác dung lượng của toàn bộ các thư mục rác bị loại bỏ (`node_modules`, `build`, `dist`...), không còn hiện tượng báo tiết kiệm 0B.
+- **🛡️ Chống Crash**: File bị khóa hoặc không đủ quyền đọc sẽ được bỏ qua an toàn và hiển thị cảnh báo, không làm gián đoạn toàn bộ quá trình nén.
+- **🔒 Bảo Mật Toàn Diện**: Tự động loại bỏ hơn 40+ loại credentials, SSH keys, file `.env`, tokens, passwords, database dumps.
+
+---
+
 ## 📁 Chi Tiết Cấu Trúc Thư Mục Dự Án
 
 Cấu trúc mã nguồn của dự án được tổ chức gọn gàng, tách biệt rõ ràng giữa logic cốt lõi, giao diện người dùng và cấu hình loại trừ:

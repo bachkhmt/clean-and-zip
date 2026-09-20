@@ -84,6 +84,20 @@ aws-credentials
 .yarnrc
 .yarnrc.yml
 
+# --- Python packaging tokens ---
+.pypirc
+*.pypirc
+
+# --- Git / cURL / HTTP credentials lưu dạng plaintext ---
+.netrc
+.git-credentials
+
+# --- Azure Functions (chứa connection string / key) ---
+local.settings.json
+
+# --- PuTTY private key (phổ biến trên Windows) ---
+*.ppk
+
 # --- Generic secrets & tokens ---
 secrets.*
 *.secret
@@ -122,6 +136,7 @@ kubeconfig
 # =============================================================================
 node_modules
 dist
+build
 .next
 .nuxt
 .turbo
@@ -158,6 +173,11 @@ env
 *.pyd
 *.egg-info
 .tox
+
+# PyInstaller spec files tự sinh khi build .exe (không phải source cần giữ).
+# Nếu bạn có 1 file .spec tự tay chỉnh sửa muốn giữ lại, whitelist bằng
+# "!ten-file.spec" ở đầu file này.
+*.spec
 
 # =============================================================================
 # ☕ Java / Kotlin / Gradle / Maven
@@ -300,7 +320,11 @@ ehthumbs.db
 # =============================================================================
 # 🗄️ Database & Local Runtime Data
 # =============================================================================
-data
+# LƯU Ý: đã bỏ pattern "data" (không có đuôi mở rộng) khỏi mặc định vì nó
+# khớp với BẤT KỲ thư mục/file nào tên "data" ở bất kỳ độ sâu nào trong dự
+# án -> rất dễ xóa nhầm dataset/seed-data/context quan trọng (đặc biệt dự
+# án nghiên cứu, ML). Nếu chắc chắn muốn loại trừ thư mục "data/" của riêng
+# bạn, tự thêm dòng "data" vào đây hoặc dùng cờ -e data khi chạy CLI.
 *.sqlite
 *.sqlite3
 *.db

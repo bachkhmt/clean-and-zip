@@ -542,7 +542,7 @@ class CleanZipApp(ctk.CTk):
             elapsed = time.time() - start_time
 
             self.last_zip_path = output_path
-            self._add_to_history(source_dir)
+            self.after(0, self._add_to_history, source_dir)
             self.after(0, self._on_zip_success, res, elapsed)
 
         except Exception as e:

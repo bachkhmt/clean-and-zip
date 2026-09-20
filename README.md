@@ -18,6 +18,7 @@
 - **📊 Tính Chuẩn Dung Lượng Tiết Kiệm**: Tính toán chính xác dung lượng của toàn bộ các thư mục rác bị loại bỏ (`node_modules`, `build`, `dist`...), không còn hiện tượng báo tiết kiệm 0B.
 - **🛡️ Chống Crash**: File bị khóa hoặc không đủ quyền đọc sẽ được bỏ qua an toàn và hiển thị cảnh báo, không làm gián đoạn toàn bộ quá trình nén.
 - **🔒 Bảo Mật Toàn Diện**: Tự động loại bỏ hơn 40+ loại credentials, SSH keys, file `.env`, tokens, passwords, database dumps.
+- **🧵 Sửa lỗi thread-safety**: `_add_to_history()` (cập nhật dropdown "Gần đây") trước đây bị gọi trực tiếp từ background thread khi nén xong, có thể gây crash/treo UI (đặc biệt trên macOS/Linux). Đã chuyển qua `self.after(0, ...)` giống các cập nhật UI khác trong app.
 
 ---
 

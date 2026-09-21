@@ -17,7 +17,9 @@ if %errorlevel% neq 0 (
 echo [*] Dang tien hanh build file .exe...
 pyinstaller --noconfirm --windowed --onefile ^
   --name "CleanZip" ^
+  --icon "public/cleanzip.ico" ^
   --add-data "default-excludes.txt;." ^
+  --add-data "public;public" ^
   --collect-all customtkinter ^
   gui.py
 

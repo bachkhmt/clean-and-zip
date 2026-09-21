@@ -52,6 +52,15 @@ def save_config(cfg):
         pass
 
 
+def get_resource_path(relative_path: str) -> str:
+    """Lấy đường dẫn tài nguyên tuyệt đối, tương thích cả khi chạy source code và khi đóng gói PyInstaller."""
+    if getattr(sys, "frozen", False):
+        base_path = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
+
 class CleanZipApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -64,6 +73,21 @@ class CleanZipApp(ctk.CTk):
         self.title("CleanZip Desktop v2.1 - Nén Dự Án Gọn Sạch")
         self.geometry("760x690")
         self.minsize(720, 640)
+
+        # Cấu hình icon cửa sổ và thanh tác vụ
+        ico_path = get_resource_path(os.path.join("public", "cleanzip.ico"))
+        if os.path.exists(ico_path):
+            try:
+                if sys.platform == "win32":
+                    self.iconbitmap(ico_path)
+                else:
+                    from PIL import ImageTk
+                    png_path = get_resource_path(os.path.join("public", "cleanzip_square.png"))
+                    if os.path.exists(png_path):
+                        photo = ImageTk.PhotoImage(file=png_path)
+                        self.iconphoto(True, photo)
+            except Exception:
+                pass
 
         if sys.platform == "win32":
             try:
@@ -92,6 +116,18 @@ class CleanZipApp(ctk.CTk):
 
         self.title_box = ctk.CTkFrame(self.header_left, fg_color="transparent")
         self.title_box.pack(anchor="w")
+
+        # Hiển thị Logo CleanZip trong Header
+        logo_png = get_resource_path(os.path.join("public", "cleanzip_square.png"))
+        if os.path.exists(logo_png):
+            try:
+                from PIL import Image
+                pil_logo = Image.open(logo_png)
+                self.logo_image = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=(36, 36))
+                self.logo_label = ctk.CTkLabel(self.title_box, text="", image=self.logo_image)
+                self.logo_label.pack(side="left", padx=(0, 8))
+            except Exception:
+                pass
 
         self.title_label = ctk.CTkLabel(
             self.title_box,

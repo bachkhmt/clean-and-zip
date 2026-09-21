@@ -28,7 +28,9 @@ echo "[*] Dang tien hanh build..."
 # Luu y: tren macOS/Linux, dau phan cach cua --add-data la dau ":" (Windows dung ";")
 if "$PYTHON_BIN" -m PyInstaller --noconfirm --windowed --onefile \
     --name "CleanZip" \
+    --icon "public/cleanzip.ico" \
     --add-data "default-excludes.txt:." \
+    --add-data "public:public" \
     --collect-all customtkinter \
     gui.py; then
 

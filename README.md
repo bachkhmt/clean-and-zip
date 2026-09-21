@@ -40,6 +40,9 @@ zip-folder/
 │   ├── cleanzip.py             # Module xử lý nén chính, lọc file và hỗ trợ chạy dòng lệnh CLI
 │   └── default-excludes.txt    # Danh sách các thư mục/file mặc định bị loại trừ (sửa trực tiếp)
 │
+├── 🎨 TÀI NGUYÊN & LOGO
+│   └── public/                 # Chứa logo, icon app (cleanzip.png, cleanzip.ico, cleanzip.svg...)
+│
 ├── 📦 CẤU HÌNH & DEPENDENCIES
 │   ├── requirements.txt        # Danh sách thư viện Python cần thiết (customtkinter, darkdetect)
 │   ├── .gitignore              # Loại trừ file rác, file build release nặng (dist, build, *.spec, *.zip)
@@ -58,6 +61,7 @@ zip-folder/
 | **`gui.py`** | Source Code | Giao diện Desktop UI xây dựng bằng `CustomTkinter`. Hỗ trợ tự động dán đường dẫn từ clipboard, nén nền (background thread) không bị đơ app, tự động lưu vào `Downloads`, hiển thị dung lượng tiết kiệm được và nút mở trực tiếp thư mục Downloads. |
 | **`cleanzip.py`** | Source Code | Chứa core logic: quét cây thư mục (`collect_files`), kiểm tra whitelist/blacklist (`is_excluded`), tính toán dung lượng (`human_size`), nén zip và hỗ trợ giao diện dòng lệnh (CLI). |
 | **`default-excludes.txt`** | Config Text | File cấu hình các thư mục và đuôi file bị loại bỏ khi nén. Bạn có thể mở và chỉnh sửa trực tiếp bằng Notepad/VS Code mà không cần động vào mã nguồn Python. |
+| **`public/`** | Assets | Chứa bộ nhận diện thương hiệu của ứng dụng (logo PNG, SVG, JPG và file icon đa kích thước `cleanzip.ico` dùng khi đóng gói Desktop App). |
 | **`run_gui.bat`** | Windows Batch | Giúp người dùng Windows khởi chạy ứng dụng Desktop ngay lập tức bằng cách click đúp chuột mà không cần gõ lệnh terminal. |
 | **`run_gui.sh`** | Shell Script | Bản tương đương `run_gui.bat` cho macOS/Linux — chạy `./run_gui.sh` trong Terminal để khởi chạy giao diện trực tiếp từ source. |
 | **`build_exe.bat`** | Windows Batch | Tự động cài đặt `pyinstaller` (nếu thiếu) và đóng gói toàn bộ dự án thành file thực thi độc lập `CleanZip.exe` nằm trong thư mục `dist/`. |

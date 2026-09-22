@@ -55,7 +55,20 @@ def save_config(cfg):
 def get_resource_path(relative_path: str) -> str:
     """Lấy đường dẫn tài nguyên tuyệt đối, tương thích cả khi chạy source code và khi đóng gói PyInstaller."""
     if getattr(sys, "frozen", False):
-        base_path = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        candidates = [
+            getattr(sys, "_MEIPASS", ""),
+            os.path.join(exe_dir, "_internal"),
+            exe_dir,
+            os.path.join(os.path.dirname(exe_dir), "Resources"),
+            os.path.join(os.path.dirname(exe_dir), "Frameworks"),
+        ]
+        for c in candidates:
+            if c:
+                target = os.path.join(c, relative_path)
+                if os.path.exists(target):
+                    return target
+        base_path = getattr(sys, "_MEIPASS", exe_dir)
     else:
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
@@ -106,6 +119,12 @@ class CleanZipApp(ctk.CTk):
         self.recent_list = [p for p in self.cfg.get("history", []) if os.path.isdir(p)]
 
         self._build_ui()
+        if sys.platform == "darwin":
+            try:
+                self.lift()
+                self.focus_force()
+            except Exception:
+                pass
 
     def _build_ui(self):
         self.main_container = ctk.CTkFrame(self, corner_radius=16, fg_color=("gray95", "gray12"))
@@ -195,15 +214,19 @@ class CleanZipApp(ctk.CTk):
         self.entry_frame = ctk.CTkFrame(self.input_card, fg_color="transparent")
         self.entry_frame.pack(fill="x", padx=16, pady=(0, 8))
 
+        paste_hint = "Cmd+V" if sys.platform == "darwin" else "Ctrl+V"
         self.path_entry = ctk.CTkEntry(
             self.entry_frame,
-            placeholder_text=r"Dán đường dẫn vào đây (Ctrl+V hoặc bấm 'Dán')...",
+            placeholder_text=f"Dán đường dẫn vào đây ({paste_hint} hoặc bấm 'Dán')...",
             height=40,
             font=ctk.CTkFont(size=13),
             corner_radius=8,
         )
         self.path_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.path_entry.bind("<Return>", lambda e: self.start_zip_thread())
+        if sys.platform == "darwin":
+            self.path_entry.bind("<Command-a>", lambda e: (self.path_entry.select_range(0, "end"), "break")[1])
+            self.path_entry.bind("<Command-A>", lambda e: (self.path_entry.select_range(0, "end"), "break")[1])
 
         self.paste_btn = ctk.CTkButton(
             self.entry_frame,

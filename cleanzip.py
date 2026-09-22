@@ -35,10 +35,14 @@ if hasattr(sys.stderr, "reconfigure"):
 
 if getattr(sys, "frozen", False):
     exe_dir = os.path.dirname(sys.executable)
-    if os.path.isfile(os.path.join(exe_dir, "default-excludes.txt")):
-        DEFAULT_EXCLUDES_FILE = os.path.join(exe_dir, "default-excludes.txt")
-    else:
-        DEFAULT_EXCLUDES_FILE = os.path.join(getattr(sys, "_MEIPASS", exe_dir), "default-excludes.txt")
+    candidates = [
+        os.path.join(exe_dir, "default-excludes.txt"),
+        os.path.join(getattr(sys, "_MEIPASS", ""), "default-excludes.txt"),
+        os.path.join(exe_dir, "_internal", "default-excludes.txt"),
+        os.path.join(os.path.dirname(exe_dir), "Resources", "default-excludes.txt"),
+        os.path.join(os.path.dirname(exe_dir), "Frameworks", "default-excludes.txt"),
+    ]
+    DEFAULT_EXCLUDES_FILE = next((c for c in candidates if os.path.isfile(c)), candidates[0])
 else:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     DEFAULT_EXCLUDES_FILE = os.path.join(SCRIPT_DIR, "default-excludes.txt")

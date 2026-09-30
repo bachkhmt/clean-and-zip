@@ -21,6 +21,7 @@ pyinstaller --noconfirm --windowed --onefile ^
   --add-data "default-excludes.txt;." ^
   --add-data "public;public" ^
   --collect-all customtkinter ^
+  --collect-all PIL ^
   gui.py
 
 if %errorlevel% equ 0 (
@@ -29,6 +30,10 @@ if %errorlevel% equ 0 (
     echo [+] THANH CONG! File .exe da duoc tao trong thu muc 'dist':
     echo     dist\CleanZip.exe
     echo ========================================================
+    
+    :: Tao shortcut ra Desktop
+    powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([System.IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'CleanZip.lnk')); $s.TargetPath = [System.IO.Path]::GetFullPath('dist\CleanZip.exe'); $s.WorkingDirectory = [System.IO.Path]::GetFullPath('dist'); $s.IconLocation = [System.IO.Path]::GetFullPath('public\cleanzip.ico'); $s.Description = 'CleanZip - Cong cu dong goi du an sach se'; $s.Save()"
+    echo [+] Da tao / cap nhat shortcut CleanZip tren man hinh Desktop!
 ) else (
     echo.
     echo [-] Build that bai, vui long kiem tra lai thong bao loi o tren.

@@ -3,7 +3,8 @@
 CleanZip Desktop UI v2.1
 Giao diện trực quan, hiện đại cho tool CleanZip.
 Hỗ trợ dán nhanh, duyệt thư mục, lịch sử gần đây, chuyển đổi theme sáng/tối,
-tùy chọn bỏ qua media, mở trực tiếp file zip và thư mục Downloads.
+tùy chọn bỏ qua media, mở trực tiếp file zip và thư mục Downloads,
+và chọn thêm thư mục / file cụ thể để loại bỏ (được nhớ theo từng dự án).
 """
 
 import json
@@ -21,6 +22,7 @@ from cleanzip import (
     DEFAULT_EXCLUDES_FILE,
     get_downloads_folder,
     human_size,
+    resolve_exclude_paths,
     zip_project,
 )
 
@@ -33,6 +35,7 @@ def load_config():
         "theme": "Dark",
         "auto_open": True,
         "skip_media": True,
+        "project_excludes": {},  # {đường_dẫn_dự_án: [{"path": rel, "kind": "dir"|"file"}, ...]}
     }
     try:
         if os.path.isfile(CONFIG_FILE):
@@ -74,6 +77,20 @@ def get_resource_path(relative_path: str) -> str:
     return os.path.join(base_path, relative_path)
 
 
+def _nk(rel_path: str) -> str:
+    """Khóa so sánh đường dẫn tương đối: dùng '/', không phân biệt hoa/thường trên Windows."""
+    return os.path.normcase(rel_path).replace("\\", "/").strip("/")
+
+
+def _shorten(text: str, max_len: int = 72) -> str:
+    """Rút gọn chuỗi dài ở giữa để vừa 1 dòng."""
+    if len(text) <= max_len:
+        return text
+    keep = max_len - 3
+    head = keep // 3
+    return text[:head] + "..." + text[-(keep - head):]
+
+
 class CleanZipApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -84,8 +101,9 @@ class CleanZipApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
 
         self.title("CleanZip Desktop v2.1 - Nén Dự Án Gọn Sạch")
-        self.geometry("760x690")
-        self.minsize(720, 640)
+        screen_h = self.winfo_screenheight()
+        self.geometry(f"760x{min(860, max(600, screen_h - 100))}")
+        self.minsize(720, 560)
 
         # Cấu hình icon cửa sổ và thanh tác vụ Windows
         if sys.platform == "win32":
@@ -118,6 +136,11 @@ class CleanZipApp(ctk.CTk):
         self.last_zip_path = None
         self.recent_list = [p for p in self.cfg.get("history", []) if os.path.isdir(p)]
 
+        # Danh sách file/thư mục người dùng chọn loại bỏ thêm (thuộc về dự án self.excl_key)
+        self.excl_items = []   # [{"path": "data/raw", "kind": "dir"}, ...] - path tương đối so với dự án
+        self.excl_key = None
+        self._sync_job = None
+
         self._build_ui()
         if sys.platform == "darwin":
             try:
@@ -127,7 +150,8 @@ class CleanZipApp(ctk.CTk):
                 pass
 
     def _build_ui(self):
-        self.main_container = ctk.CTkFrame(self, corner_radius=16, fg_color=("gray95", "gray12"))
+        # Cuộn được để không bị cắt trên màn hình nhỏ khi có thêm thẻ "Loại bỏ thêm"
+        self.main_container = ctk.CTkScrollableFrame(self, corner_radius=16, fg_color=("gray95", "gray12"))
         self.main_container.pack(fill="both", expand=True, padx=18, pady=18)
 
         # ---------------- HEADER ----------------
@@ -227,6 +251,9 @@ class CleanZipApp(ctk.CTk):
         if sys.platform == "darwin":
             self.path_entry.bind("<Command-a>", lambda e: (self.path_entry.select_range(0, "end"), "break")[1])
             self.path_entry.bind("<Command-A>", lambda e: (self.path_entry.select_range(0, "end"), "break")[1])
+        # Khi người dùng gõ/dán đường dẫn khác -> nạp danh sách loại bỏ của dự án đó
+        self.path_entry.bind("<KeyRelease>", self._schedule_sync_excludes)
+        self.path_entry.bind("<FocusOut>", self._schedule_sync_excludes)
 
         self.paste_btn = ctk.CTkButton(
             self.entry_frame,
@@ -326,6 +353,75 @@ class CleanZipApp(ctk.CTk):
             command=self._save_options,
         )
         self.auto_open_cb.pack(side="left")
+
+        # ---------------- EXCLUDE CARD ----------------
+        self.exclude_card = ctk.CTkFrame(self.main_container, corner_radius=12, fg_color=("gray90", "gray17"))
+        self.exclude_card.pack(fill="x", padx=20, pady=8)
+
+        self.exclude_header = ctk.CTkFrame(self.exclude_card, fg_color="transparent")
+        self.exclude_header.pack(fill="x", padx=16, pady=(12, 6))
+
+        self.exclude_title = ctk.CTkLabel(
+            self.exclude_header,
+            text="🚫 Loại bỏ thêm khỏi file zip (tùy chọn)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.exclude_title.pack(side="left")
+
+        self.exclude_count_label = ctk.CTkLabel(
+            self.exclude_header,
+            text="",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=("#2563EB", "#60A5FA"),
+        )
+        self.exclude_count_label.pack(side="right")
+
+        self.exclude_btns = ctk.CTkFrame(self.exclude_card, fg_color="transparent")
+        self.exclude_btns.pack(fill="x", padx=16, pady=(0, 8))
+
+        self.add_folder_btn = ctk.CTkButton(
+            self.exclude_btns,
+            text="📁 Thêm thư mục",
+            height=34,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("gray75", "gray28"),
+            hover_color=("gray65", "gray35"),
+            text_color=("gray10", "gray90"),
+            corner_radius=8,
+            command=self.add_exclude_folder,
+        )
+        self.add_folder_btn.pack(side="left", padx=(0, 6))
+
+        self.add_file_btn = ctk.CTkButton(
+            self.exclude_btns,
+            text="📄 Thêm file",
+            height=34,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("gray75", "gray28"),
+            hover_color=("gray65", "gray35"),
+            text_color=("gray10", "gray90"),
+            corner_radius=8,
+            command=self.add_exclude_files,
+        )
+        self.add_file_btn.pack(side="left", padx=(0, 6))
+
+        self.clear_excl_btn = ctk.CTkButton(
+            self.exclude_btns,
+            text="🗑 Xóa hết",
+            width=80,
+            height=34,
+            font=ctk.CTkFont(size=12),
+            fg_color=("gray75", "gray28"),
+            hover_color=("gray65", "gray35"),
+            text_color=("gray10", "gray90"),
+            corner_radius=8,
+            command=self.clear_excludes,
+        )
+        self.clear_excl_btn.pack(side="left")
+
+        self.exclude_list = ctk.CTkFrame(self.exclude_card, corner_radius=8, fg_color=("gray84", "gray13"))
+        self.exclude_list.pack(fill="x", padx=16, pady=(0, 12))
+        self._render_excludes()
 
         # ---------------- ACTION BUTTON ----------------
         self.zip_btn = ctk.CTkButton(
@@ -483,6 +579,7 @@ class CleanZipApp(ctk.CTk):
                 if p in choice:
                     self.path_entry.delete(0, "end")
                     self.path_entry.insert(0, p)
+                    self._sync_project_excludes()
                     self.status_label.configure(
                         text=f"Đã chọn dự án từ lịch sử: {os.path.basename(p)}",
                         text_color=("gray30", "gray75"),
@@ -506,6 +603,7 @@ class CleanZipApp(ctk.CTk):
             cb = self.clipboard_get().strip().strip('"').strip("'")
             if os.path.isdir(cb) and not self.path_entry.get().strip():
                 self.path_entry.insert(0, cb)
+                self._sync_project_excludes()
                 self.status_label.configure(text=f"Đã tự động nhận diện thư mục từ clipboard: {os.path.basename(cb)}")
         except Exception:
             pass
@@ -515,6 +613,7 @@ class CleanZipApp(ctk.CTk):
             content = self.clipboard_get().strip().strip('"').strip("'")
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, content)
+            self._sync_project_excludes()
             if os.path.isdir(content):
                 self.status_label.configure(
                     text=f"Đã dán: {os.path.basename(content)}",
@@ -534,19 +633,227 @@ class CleanZipApp(ctk.CTk):
         if selected:
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, os.path.normpath(selected))
+            self._sync_project_excludes()
             self.status_label.configure(
                 text=f"Đã chọn: {os.path.basename(selected)}",
                 text_color=("gray30", "gray75"),
             )
 
+    # ------------------------------------------------------------------
+    # Loại bỏ thêm: chọn thư mục / file cụ thể
+    # ------------------------------------------------------------------
+    def _current_project(self):
+        """Đường dẫn tuyệt đối của dự án đang nhập trong ô path, hoặc None nếu chưa hợp lệ."""
+        p = self.path_entry.get().strip().strip('"').strip("'")
+        return os.path.abspath(p) if p and os.path.isdir(p) else None
+
+    @staticmethod
+    def _project_key(project: str) -> str:
+        return os.path.normcase(os.path.normpath(project))
+
+    def _schedule_sync_excludes(self, _event=None):
+        # Debounce: chờ người dùng gõ/dán xong rồi mới nạp danh sách
+        if self._sync_job is not None:
+            try:
+                self.after_cancel(self._sync_job)
+            except Exception:
+                pass
+        self._sync_job = self.after(350, self._sync_project_excludes)
+
+    def _sync_project_excludes(self):
+        """Nạp danh sách loại bỏ đã lưu của dự án đang chọn (mỗi dự án có danh sách riêng)."""
+        self._sync_job = None
+        project = self._current_project()
+        key = self._project_key(project) if project else None
+        if key == self.excl_key:
+            return
+        self.excl_key = key
+        store = self.cfg.get("project_excludes")
+        saved = store.get(key, []) if (key and isinstance(store, dict)) else []
+        self.excl_items = [
+            {"path": i["path"], "kind": i.get("kind", "file")}
+            for i in saved
+            if isinstance(i, dict) and isinstance(i.get("path"), str) and i["path"]
+        ]
+        self._render_excludes()
+
+    def _persist_excludes(self):
+        if not self.excl_key:
+            return
+        store = self.cfg.get("project_excludes")
+        if not isinstance(store, dict):
+            store = {}
+        store.pop(self.excl_key, None)  # bỏ rồi thêm lại để dự án này nằm cuối = mới dùng nhất
+        if self.excl_items:
+            store[self.excl_key] = list(self.excl_items)
+        while len(store) > 30:  # chỉ nhớ tối đa 30 dự án
+            store.pop(next(iter(store)))
+        self.cfg["project_excludes"] = store
+        save_config(self.cfg)
+
+    def _render_excludes(self):
+        for w in self.exclude_list.winfo_children():
+            w.destroy()
+
+        n = len(self.excl_items)
+        if n == 0:
+            self.exclude_count_label.configure(text="")
+            self.clear_excl_btn.configure(state="disabled")
+            ctk.CTkLabel(
+                self.exclude_list,
+                text="Chưa chọn mục nào. Các thư mục/file rác mặc định vẫn được loại tự động.",
+                font=ctk.CTkFont(size=12),
+                text_color=("gray40", "gray60"),
+                anchor="w",
+            ).pack(fill="x", padx=12, pady=10)
+            return
+
+        self.exclude_count_label.configure(text=f"{n} mục đã chọn")
+        self.clear_excl_btn.configure(state="normal")
+        project = self._current_project()
+
+        for idx, item in enumerate(self.excl_items):
+            row = ctk.CTkFrame(self.exclude_list, fg_color="transparent")
+            row.pack(fill="x", padx=8, pady=(6 if idx == 0 else 1, 6 if idx == n - 1 else 1))
+
+            # Nút xóa pack trước (side=right) để không bị đẩy mất khi đường dẫn dài
+            ctk.CTkButton(
+                row,
+                text="✖",
+                width=28,
+                height=24,
+                font=ctk.CTkFont(size=12),
+                fg_color="transparent",
+                hover_color=("gray72", "gray28"),
+                text_color=("#DC2626", "#F87171"),
+                command=lambda p=item["path"]: self.remove_exclude(p),
+            ).pack(side="right")
+
+            is_dir = item["kind"] == "dir"
+            exists = bool(project) and os.path.lexists(os.path.join(project, item["path"]))
+            label = f"{'📁' if is_dir else '📄'}  {_shorten(item['path'])}{'/' if is_dir else ''}"
+            if not exists:
+                label += "   ⚠️ không còn tồn tại"
+            ctk.CTkLabel(
+                row,
+                text=label,
+                font=ctk.CTkFont(size=12),
+                text_color=("gray25", "gray80") if exists else ("#B45309", "#FBBF24"),
+                anchor="w",
+            ).pack(side="left", fill="x", expand=True, padx=(6, 4))
+
+    def _require_project(self):
+        project = self._current_project()
+        self._sync_project_excludes()
+        if not project:
+            messagebox.showinfo(
+                "Chưa chọn dự án",
+                "Hãy dán hoặc chọn thư mục dự án ở trên trước,\nrồi mới chọn các thư mục/file cần loại bỏ.",
+            )
+        return project
+
+    def add_exclude_folder(self):
+        if self.is_zipping:
+            return
+        project = self._require_project()
+        if not project:
+            return
+        selected = filedialog.askdirectory(initialdir=project, title="Chọn thư mục muốn loại bỏ khỏi file zip")
+        if selected:
+            self._add_excludes([selected])
+
+    def add_exclude_files(self):
+        if self.is_zipping:
+            return
+        project = self._require_project()
+        if not project:
+            return
+        selected = filedialog.askopenfilenames(initialdir=project, title="Chọn file muốn loại bỏ khỏi file zip (chọn được nhiều file)")
+        if selected:
+            self._add_excludes(list(selected))
+
+    def _add_excludes(self, paths):
+        project = self._current_project()
+        if not project:
+            return
+
+        added, skipped_dup, outside = [], 0, []
+        for raw in paths:
+            raw = os.path.normpath(raw)
+            rel_set, invalid, _missing = resolve_exclude_paths(project, [raw])
+            if invalid or not rel_set:
+                outside.append(raw)
+                continue
+
+            rel = os.path.relpath(raw, project).replace("\\", "/")
+            key = _nk(rel)
+
+            # Trùng, hoặc đã nằm trong 1 thư mục đang bị loại -> không cần thêm
+            already = any(
+                key == _nk(it["path"]) or (it["kind"] == "dir" and key.startswith(_nk(it["path"]) + "/"))
+                for it in self.excl_items
+            )
+            if already:
+                skipped_dup += 1
+                continue
+
+            kind = "dir" if os.path.isdir(raw) else "file"
+            if kind == "dir":
+                # Thư mục mới bao trùm các mục con đã chọn trước đó -> gộp lại cho gọn
+                self.excl_items = [it for it in self.excl_items if not _nk(it["path"]).startswith(key + "/")]
+            self.excl_items.append({"path": rel, "kind": kind})
+            added.append(rel)
+
+        self.excl_items.sort(key=lambda it: (it["kind"] != "dir", _nk(it["path"])))
+        self._persist_excludes()
+        self._render_excludes()
+
+        msg = f"Đã thêm {len(added)} mục vào danh sách loại bỏ." if added else "Không có mục nào được thêm."
+        if skipped_dup:
+            msg += f" ({skipped_dup} mục đã có sẵn hoặc đã nằm trong thư mục bị loại)"
+        self.status_label.configure(text=msg, text_color=("gray30", "gray75"))
+
+        if outside:
+            shown = "\n".join(f"• {_shorten(o, 80)}" for o in outside[:5])
+            more = f"\n... và {len(outside) - 5} mục khác" if len(outside) > 5 else ""
+            messagebox.showwarning(
+                "Mục nằm ngoài dự án",
+                f"Các mục sau nằm NGOÀI thư mục dự án (hoặc chính là thư mục gốc) nên đã bị bỏ qua:\n\n{shown}{more}",
+            )
+
+    def remove_exclude(self, rel_path: str):
+        if self.is_zipping:
+            return
+        self.excl_items = [it for it in self.excl_items if it["path"] != rel_path]
+        self._persist_excludes()
+        self._render_excludes()
+
+    def clear_excludes(self):
+        if self.is_zipping or not self.excl_items:
+            return
+        self.excl_items = []
+        self._persist_excludes()
+        self._render_excludes()
+        self.status_label.configure(text="Đã xóa toàn bộ danh sách loại bỏ thêm.", text_color=("gray30", "gray75"))
+
+    def _set_exclude_controls(self, state: str):
+        self.add_folder_btn.configure(state=state)
+        self.add_file_btn.configure(state=state)
+        if state == "normal" and not self.excl_items:
+            self.clear_excl_btn.configure(state="disabled")
+        else:
+            self.clear_excl_btn.configure(state=state)
+
     def clear_input(self):
         self.path_entry.delete(0, "end")
+        self._sync_project_excludes()
         self.path_entry.focus()
         self.status_label.configure(text="Đã xóa ô nhập. Hãy dán hoặc chọn đường dẫn mới.", text_color=("gray30", "gray75"))
 
     def reset_form(self):
         self.result_card.pack_forget()
         self.path_entry.delete(0, "end")
+        self._sync_project_excludes()
         self.path_entry.focus()
         self.progress_bar.set(0)
         self.status_label.configure(text="Sẵn sàng. Hãy dán đường dẫn thư mục dự án và bấm 'NÉN DỰ ÁN'.", text_color=("gray30", "gray75"))
@@ -567,11 +874,16 @@ class CleanZipApp(ctk.CTk):
 
         self.result_card.pack_forget()
 
+        # Đảm bảo danh sách loại bỏ khớp đúng dự án đang nhập (phòng khi vừa gõ xong bấm nén ngay)
+        self._sync_project_excludes()
+        exclude_paths = [it["path"] for it in self.excl_items]
+
         self.is_zipping = True
         self.zip_btn.configure(state="disabled", text="⏳ Đang xử lý...")
         self.paste_btn.configure(state="disabled")
         self.browse_btn.configure(state="disabled")
         self.clear_btn.configure(state="disabled")
+        self._set_exclude_controls("disabled")
         self.progress_bar.set(0)
         self.status_label.configure(
             text="Đang bắt đầu quét các file và thư mục...",
@@ -581,10 +893,10 @@ class CleanZipApp(ctk.CTk):
         skip_media = self.skip_media_var.get()
         include_media = not skip_media
 
-        thread = threading.Thread(target=self._run_zip, args=(source, include_media), daemon=True)
+        thread = threading.Thread(target=self._run_zip, args=(source, include_media, exclude_paths), daemon=True)
         thread.start()
 
-    def _run_zip(self, source_dir: str, include_media: bool):
+    def _run_zip(self, source_dir: str, include_media: bool, exclude_paths=None):
         try:
             project_name = os.path.basename(source_dir.rstrip(os.sep)) or "project"
             timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -600,8 +912,10 @@ class CleanZipApp(ctk.CTk):
                 output_path=output_path,
                 excludes_file=DEFAULT_EXCLUDES_FILE,
                 include_media=include_media,
+                exclude_paths=exclude_paths,
                 progress_callback=on_progress,
             )
+            res["manual_excluded"] = len(exclude_paths or [])
             elapsed = time.time() - start_time
 
             self.last_zip_path = output_path
@@ -627,6 +941,7 @@ class CleanZipApp(ctk.CTk):
         self.paste_btn.configure(state="normal")
         self.browse_btn.configure(state="normal")
         self.clear_btn.configure(state="normal")
+        self._set_exclude_controls("normal")
         self.progress_bar.set(1.0)
 
         out_name = os.path.basename(res["output_path"])
@@ -639,18 +954,23 @@ class CleanZipApp(ctk.CTk):
         self.stat1_sub.configure(text=f"Gốc: ~{kept_size_str}")
 
         self.stat2_val.configure(text=f"~{skipped_size_str}")
-        self.stat2_sub.configure(text=f"{res['skipped_dirs_count']} thư mục rác")
+        self.stat2_sub.configure(text=f"{res['skipped_dirs_count']} thư mục, {res['skipped_files_count']} file bị loại")
 
         self.stat3_val.configure(text=f"{res['kept_count']} files")
         self.stat3_sub.configure(text=f"Thời gian: {elapsed:.1f}s")
 
         detail_text = f"• File kết quả: {out_name}\n• Vị trí: {res['output_path']}"
+        if res.get("manual_excluded"):
+            detail_text += f"\n• Loại bỏ thêm theo lựa chọn của bạn: {res['manual_excluded']} mục"
+        if res.get("missing_exclude_paths"):
+            detail_text += f"\n⚠️ {len(res['missing_exclude_paths'])} mục bạn chọn không còn tồn tại trong dự án nên không có tác dụng."
         if res.get("failed_count"):
             detail_text += f"\n⚠️ Lưu ý: Có {res['failed_count']} file bị bỏ qua do lỗi quyền truy cập / file đang bị khóa."
         self.result_detail_label.configure(text=detail_text)
 
         self.status_label.configure(text="✅ Hoàn tất! File zip đã sẵn sàng trong Downloads.", text_color=("#16A34A", "#4ADE80"))
         self.result_card.pack(fill="x", padx=20, pady=(6, 10))
+        self.after(150, self._scroll_to_bottom)
 
         # Tự động mở Downloads nếu bật tùy chọn
         if self.auto_open_var.get():
@@ -662,12 +982,20 @@ class CleanZipApp(ctk.CTk):
         self.paste_btn.configure(state="normal")
         self.browse_btn.configure(state="normal")
         self.clear_btn.configure(state="normal")
+        self._set_exclude_controls("normal")
         self.progress_bar.set(0)
         self.status_label.configure(
             text=f"❌ Có lỗi xảy ra: {err_msg}",
             text_color=("#DC2626", "#F87171"),
         )
         messagebox.showerror("Lỗi Nén", f"Đã xảy ra lỗi trong quá trình nén dự án:\n\n{err_msg}")
+
+    def _scroll_to_bottom(self):
+        """Cuộn xuống cuối để thấy khung kết quả khi cửa sổ nhỏ."""
+        try:
+            self.main_container._parent_canvas.yview_moveto(1.0)
+        except Exception:
+            pass
 
     def open_downloads_folder(self):
         if self.last_zip_path and os.path.exists(self.last_zip_path):

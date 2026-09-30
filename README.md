@@ -8,6 +8,7 @@
 
 ## 🚀 Các Tính Năng Nâng Cấp Nổi Bật (v2.1 Pro)
 
+- **🚫 Loại Bỏ Thêm File / Thư Mục Tùy Chọn**: Ngoài danh sách loại trừ mặc định, bạn có thể tự chọn thêm bất kỳ thư mục hoặc file cụ thể nào không muốn đưa vào file zip (chọn được nhiều file cùng lúc). Danh sách được **nhớ riêng cho từng dự án**, lần sau mở lại không cần chọn lại. Hỗ trợ cả CLI qua cờ `-x`.
 - **🎨 Chuyển đổi Theme Tức Thì**: Hỗ trợ chuyển đổi nhanh giữa chế độ Tối (Dark), Sáng (Light) hoặc Theo hệ thống (System) ngay trên thanh tiêu đề.
 - **🕒 Lịch sử Dự Án Gần Đây**: Tự động lưu lại 5 dự án gần nhất, cho phép chọn lại chỉ bằng 1 cú nhấp chuột mà không cần tìm lại thư mục.
 - **⚙️ Tùy chọn Linh Hoạt**:
@@ -58,8 +59,8 @@ zip-folder/
 
 | Tên File / Thư Mục | Loại | Mô tả chức năng |
 |---|---|---|
-| **`gui.py`** | Source Code | Giao diện Desktop UI xây dựng bằng `CustomTkinter`. Hỗ trợ tự động dán đường dẫn từ clipboard, nén nền (background thread) không bị đơ app, tự động lưu vào `Downloads`, hiển thị dung lượng tiết kiệm được và nút mở trực tiếp thư mục Downloads. |
-| **`cleanzip.py`** | Source Code | Chứa core logic: quét cây thư mục (`collect_files`), kiểm tra whitelist/blacklist (`is_excluded`), tính toán dung lượng (`human_size`), nén zip và hỗ trợ giao diện dòng lệnh (CLI). |
+| **`gui.py`** | Source Code | Giao diện Desktop UI xây dựng bằng `CustomTkinter`. Hỗ trợ tự động dán đường dẫn từ clipboard, nén nền (background thread) không bị đơ app, tự động lưu vào `Downloads`, hiển thị dung lượng tiết kiệm được, nút mở trực tiếp thư mục Downloads và thẻ **"Loại bỏ thêm"** để chọn file/thư mục cần bỏ. |
+| **`cleanzip.py`** | Source Code | Chứa core logic: quét cây thư mục (`collect_files`), kiểm tra whitelist/blacklist (`is_excluded`), tính toán dung lượng (`human_size`), nén zip, loại trừ file/thư mục theo đường dẫn chính xác (`resolve_exclude_paths`) và hỗ trợ giao diện dòng lệnh (CLI). |
 | **`default-excludes.txt`** | Config Text | File cấu hình các thư mục và đuôi file bị loại bỏ khi nén. Bạn có thể mở và chỉnh sửa trực tiếp bằng Notepad/VS Code mà không cần động vào mã nguồn Python. |
 | **`public/`** | Assets | Chứa bộ nhận diện thương hiệu của ứng dụng (logo PNG, SVG, JPG và file icon đa kích thước `cleanzip.ico` dùng khi đóng gói Desktop App). |
 | **`run_gui.bat`** | Windows Batch | Giúp người dùng Windows khởi chạy ứng dụng Desktop ngay lập tức bằng cách click đúp chuột mà không cần gõ lệnh terminal. |
@@ -87,10 +88,17 @@ zip-folder/
   python gui.py
   ```
 
-#### 2. Thao tác 3 bước đơn giản:
+#### 2. Thao tác đơn giản:
 1. **Dán đường dẫn**: Copy đường dẫn thư mục dự án của bạn và ấn nút **"📋 Dán"** (hoặc dùng phím tắt `Ctrl+V`). *Ứng dụng cũng có tính năng tự động nhận diện nếu bạn vừa copy một đường dẫn hợp lệ!*
-2. **Bắt đầu Nén**: Nhấp vào nút **"⚡ NÉN DỰ ÁN (ZIP)"**.
-3. **Xem kết quả & Lấy file**:
+2. **(Tùy chọn) Loại bỏ thêm file / thư mục**: Trong thẻ **"🚫 Loại bỏ thêm khỏi file zip"**:
+   - Bấm **"📁 Thêm thư mục"** để chọn một thư mục, hoặc **"📄 Thêm file"** để chọn một hay nhiều file cần bỏ (cửa sổ chọn sẽ mở sẵn tại thư mục dự án).
+   - Mỗi mục hiển thị theo đường dẫn tương đối so với dự án; bấm **✖** để bỏ chọn một mục, hoặc **"🗑 Xóa hết"** để làm trống danh sách.
+   - Chỉ chọn được mục **nằm trong thư mục dự án**. Mục nằm ngoài dự án sẽ bị bỏ qua kèm cảnh báo.
+   - Nếu chọn một thư mục đã bao gồm các mục con đã chọn trước đó, các mục con sẽ được gộp lại; nếu mục đã nằm trong thư mục bị loại thì không thêm trùng.
+   - Danh sách được **lưu theo từng dự án** (trong `~/.cleanzip_config.json`), chọn lại dự án đó là danh sách tự hiện lại. Mục nào không còn tồn tại sẽ được đánh dấu ⚠️.
+   - Lựa chọn của bạn được ưu tiên hơn cả whitelist `!` trong `default-excludes.txt`.
+3. **Bắt đầu Nén**: Nhấp vào nút **"⚡ NÉN DỰ ÁN (ZIP)"**.
+4. **Xem kết quả & Lấy file**:
    - File `.zip` sạch sẽ được **tự động lưu vào thư mục `Downloads`** của máy tính bạn theo định dạng `<tên_dự_án>_clean_<thời_gian>.zip`.
    - Hiển thị đầy đủ thông tin: dung lượng file zip, số file đã giữ, dung lượng tiết kiệm được từ việc loại bỏ các file nặng (`node_modules`, `.git`...).
    - Bấm nút **"📂 Mở Thư Mục Downloads"** để xem ngay file zip trong Explorer (Windows) / Finder (macOS) / trình quản lý file mặc định (Linux).
@@ -117,12 +125,19 @@ python cleanzip.py "D:\projects\my-web-app" -o "C:\Users\PC\Desktop\my-web-app-c
 python cleanzip.py "D:\projects\my-web-app" --dry-run --verbose
 ```
 
+#### Loại bỏ thêm file / thư mục cụ thể (`-x`):
+```bash
+python cleanzip.py "D:\projects\my-web-app" -x docs/old-report.pdf -x data/raw -x assets/videos
+```
+Đường dẫn có thể là **tương đối so với dự án** hoặc **tuyệt đối**, dùng cho cả file lẫn thư mục và lặp lại `-x` bao nhiêu lần tùy ý. Khác với `-e`, cờ `-x` khớp **chính xác theo đường dẫn** (không hiểu wildcard), nên các tên như `[id].tsx` hay `report (1).pdf` không bị hiểu nhầm. Mục nằm ngoài dự án hoặc không tồn tại sẽ được cảnh báo.
+
 #### Toàn bộ cờ dòng lệnh:
 | Cờ | Tác dụng |
 |---|---|
 | `source` | Đường dẫn thư mục dự án cần nén (bắt buộc) |
 | `-o, --output` | Đường dẫn file zip đầu ra |
-| `-e, --exclude` | Thêm các pattern loại trừ tạm thời cho lần chạy này |
+| `-e, --exclude` | Thêm các pattern loại trừ tạm thời cho lần chạy này (hỗ trợ wildcard như `*.log`) |
+| `-x, --exclude-path` | Loại bỏ thêm 1 file/thư mục cụ thể theo đường dẫn chính xác, có thể lặp lại nhiều lần |
 | `--excludes-file` | Dùng file cấu hình loại trừ khác thay vì `default-excludes.txt` |
 | `--dry-run` | Chỉ quét và thống kê, không tạo file zip |
 | `--verbose` | In chi tiết danh sách từng file/thư mục bị bỏ qua |

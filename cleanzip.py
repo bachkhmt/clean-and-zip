@@ -17,6 +17,9 @@ VÍ DỤ:
     python3 cleanzip.py ~/projects/project-A
     python3 cleanzip.py ~/projects/project-A -o ~/Desktop/project-A-clean.zip
     python3 cleanzip.py ~/projects/project-A --dry-run --verbose
+
+    Loại bỏ thêm thư mục/file cụ thể (đường dẫn tương đối so với dự án, hoặc tuyệt đối):
+    python3 cleanzip.py ~/projects/project-A -x docs/old-report.pdf data/raw assets/videos
 """
 
 import argparse
@@ -74,6 +77,52 @@ def load_excludes_file(path: str):
     return patterns
 
 
+def _norm_rel(path: str) -> str:
+    """Chuẩn hóa đường dẫn tương đối để so sánh: dùng '/', bỏ '/' thừa ở hai đầu,
+    và không phân biệt hoa/thường trên Windows."""
+    return os.path.normcase(path).replace("\\", "/").strip("/")
+
+
+def resolve_exclude_paths(source_dir: str, paths):
+    """
+    Đổi danh sách file/thư mục người dùng chỉ định (tuyệt đối HOẶC tương đối so với
+    thư mục dự án) thành tập đường dẫn tương đối đã chuẩn hóa để so khớp CHÍNH XÁC.
+
+    Khác với pattern (fnmatch), cách này coi mọi ký tự như chữ thường, nên các tên như
+    "[id].tsx" hay "file (1).txt" không bị hiểu nhầm là wildcard.
+
+    Trả về (rel_set, invalid, missing):
+      - rel_set : tập đường dẫn tương đối đã chuẩn hóa (hợp lệ, dùng để lọc)
+      - invalid : các mục nằm NGOÀI dự án hoặc trỏ vào chính thư mục gốc -> bị bỏ qua
+      - missing : các mục hợp lệ nhưng hiện không tồn tại trong dự án (vẫn giữ trong rel_set)
+    """
+    source_dir = os.path.abspath(source_dir)
+    rel_set, invalid, missing = set(), [], []
+
+    for raw in paths or []:
+        p = (raw or "").strip().strip('"').strip("'")
+        if not p:
+            continue
+        try:
+            if os.path.isabs(p):
+                rel = os.path.relpath(p, source_dir)
+            else:
+                rel = os.path.normpath(p.replace("\\", "/"))
+        except ValueError:  # khác ổ đĩa trên Windows
+            invalid.append(raw)
+            continue
+
+        if rel == "." or rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel):
+            invalid.append(raw)
+            continue
+
+        rel_set.add(_norm_rel(rel))
+        if not os.path.lexists(os.path.join(source_dir, rel)):
+            missing.append(rel.replace("\\", "/"))
+
+    return rel_set, invalid, missing
+
+
 def is_excluded(name: str, rel_path: str, patterns) -> bool:
     """Kiểm tra tên file/thư mục có bị loại trừ không, hỗ trợ pattern whitelist bắt đầu bằng '!' (vd: !.env.example)."""
     rel_norm = rel_path.replace("\\", "/")
@@ -115,10 +164,18 @@ def human_size(num_bytes: float) -> str:
     return f"{num_bytes:.1f}PB"
 
 
-def collect_files(source_dir: str, patterns, verbose_skip=False):
-    """Duyệt cây thư mục, trả về danh sách file giữ lại + thống kê."""
+def collect_files(source_dir: str, patterns, verbose_skip=False, exclude_paths=None):
+    """
+    Duyệt cây thư mục, trả về (kept, size_kept, size_skipped, skipped_dirs, skipped_files_count).
+
+    exclude_paths: tập đường dẫn tương đối (đã chuẩn hóa bằng resolve_exclude_paths) mà
+    người dùng chỉ định loại bỏ. Mục này được ưu tiên hơn cả whitelist "!" vì đó là
+    lựa chọn chủ động của người dùng.
+    """
+    exclude_paths = exclude_paths or set()
     kept = []
     skipped_dirs = []
+    skipped_files_count = 0
     size_kept = 0
     size_skipped = 0
 
@@ -134,7 +191,7 @@ def collect_files(source_dir: str, patterns, verbose_skip=False):
         new_dirs = []
         for d in dirs:
             rel_path = os.path.join(rel_root, d) if rel_root else d
-            if is_excluded(d, rel_path, patterns):
+            if (exclude_paths and _norm_rel(rel_path) in exclude_paths) or is_excluded(d, rel_path, patterns):
                 skipped_dirs.append(rel_path)
                 size_skipped += _dir_size(os.path.join(root, d))
                 if verbose_skip:
@@ -146,7 +203,8 @@ def collect_files(source_dir: str, patterns, verbose_skip=False):
         for fname in files:
             rel_path = os.path.join(rel_root, fname) if rel_root else fname
             full_path = os.path.join(root, fname)
-            if is_excluded(fname, rel_path, patterns):
+            if (exclude_paths and _norm_rel(rel_path) in exclude_paths) or is_excluded(fname, rel_path, patterns):
+                skipped_files_count += 1
                 if verbose_skip:
                     print(f"  [-] bỏ qua file: {rel_path}")
                 try:
@@ -161,7 +219,7 @@ def collect_files(source_dir: str, patterns, verbose_skip=False):
             size_kept += fsize
             kept.append((full_path, rel_path))
 
-    return kept, size_kept, size_skipped, skipped_dirs
+    return kept, size_kept, size_skipped, skipped_dirs, skipped_files_count
 
 
 def get_downloads_folder() -> str:
@@ -186,6 +244,7 @@ def zip_project(
     output_path: str = None,
     excludes_file: str = DEFAULT_EXCLUDES_FILE,
     extra_excludes: list = None,
+    exclude_paths: list = None,
     include_media: bool = False,
     progress_callback=None,
     dry_run: bool = False,
@@ -194,6 +253,9 @@ def zip_project(
     """
     Nén dự án sau khi lọc các file/thư mục loại trừ.
     Hỗ trợ progress_callback(stage, current, total, message) phục vụ GUI.
+
+    exclude_paths: danh sách file/thư mục cụ thể cần loại bỏ thêm (tuyệt đối hoặc tương đối
+    so với source_dir). Khớp chính xác theo đường dẫn, không dùng wildcard.
     """
     source_dir = os.path.abspath(source_dir)
     if not os.path.isdir(source_dir):
@@ -210,8 +272,10 @@ def zip_project(
     if progress_callback:
         progress_callback("scan", 0, 0, f"Đang quét thư mục dự án: {project_name}...")
 
-    kept, size_kept, size_skipped, skipped_dirs = collect_files(
-        source_dir, patterns, verbose_skip=verbose
+    exclude_set, invalid_excludes, missing_excludes = resolve_exclude_paths(source_dir, exclude_paths)
+
+    kept, size_kept, size_skipped, skipped_dirs, skipped_files_count = collect_files(
+        source_dir, patterns, verbose_skip=verbose, exclude_paths=exclude_set
     )
 
     total_files = len(kept)
@@ -256,6 +320,9 @@ def zip_project(
         "skipped_size": size_skipped,
         "skipped_dirs_count": len(skipped_dirs),
         "skipped_dirs": skipped_dirs,
+        "skipped_files_count": skipped_files_count,
+        "invalid_exclude_paths": invalid_excludes,
+        "missing_exclude_paths": missing_excludes,
         "compressed_size": out_size,
         "failed_count": len(failed) if not dry_run else 0,
     }
@@ -274,6 +341,11 @@ def main():
     parser.add_argument("source", help="Đường dẫn thư mục dự án cần đóng zip (BẮT BUỘC - đây là phần bạn chỉ định)")
     parser.add_argument("-o", "--output", help="Đường dẫn file zip đầu ra (mặc định: <tên_dự_án>_clean_<timestamp>.zip)")
     parser.add_argument("-e", "--exclude", nargs="*", default=[], help="Thêm pattern loại trừ tạm thời, chỉ áp dụng cho lần chạy này")
+    parser.add_argument(
+        "-x", "--exclude-path", action="append", default=[], metavar="PATH",
+        help="Loại bỏ thêm 1 file/thư mục cụ thể (đường dẫn tương đối so với dự án hoặc tuyệt đối). "
+             "Có thể lặp lại nhiều lần: -x docs/old.pdf -x data/raw",
+    )
     parser.add_argument("--excludes-file", default=DEFAULT_EXCLUDES_FILE, help="Dùng file danh sách loại trừ khác thay vì default-excludes.txt")
     parser.add_argument("--include-media", action="store_true", help="Giữ lại file audio/video thay vì loại bỏ")
     parser.add_argument("--dry-run", action="store_true", help="Chỉ liệt kê, không tạo file zip")
@@ -301,13 +373,18 @@ def main():
         output_path=out_path,
         excludes_file=args.excludes_file,
         extra_excludes=args.exclude,
+        exclude_paths=args.exclude_path,
         include_media=args.include_media,
         dry_run=args.dry_run,
         verbose=args.verbose,
     )
 
     print(f"[*] Giữ lại : {res['kept_count']} file  (~{human_size(res['kept_size'])})")
-    print(f"[*] Bỏ qua  : {res['skipped_dirs_count']} thư mục  (~{human_size(res['skipped_size'])} tiết kiệm được)")
+    print(f"[*] Bỏ qua  : {res['skipped_dirs_count']} thư mục, {res['skipped_files_count']} file  (~{human_size(res['skipped_size'])} tiết kiệm được)")
+    for item in res["invalid_exclude_paths"]:
+        print(f"[!] Bỏ qua mục -x nằm ngoài dự án (hoặc là thư mục gốc): {item}", file=sys.stderr)
+    for item in res["missing_exclude_paths"]:
+        print(f"[!] Mục -x không tồn tại trong dự án: {item}", file=sys.stderr)
     if res['skipped_dirs'] and not args.verbose:
         preview = ", ".join(res['skipped_dirs'][:8])
         more = f" (+{len(res['skipped_dirs']) - 8} thư mục khác)" if len(res['skipped_dirs']) > 8 else ""

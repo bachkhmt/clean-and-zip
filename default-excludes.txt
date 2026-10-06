@@ -6,6 +6,7 @@
 #
 # Quy tắc viết:
 #   - Mỗi dòng 1 pattern (tên thư mục, tên file, hoặc dùng * để khớp nhiều file)
+#   - Prefix / chỉ khớp ở thư mục gốc dự án, ví dụ: /build (không khớp packages/app/build)
 #   - Có thể dùng "!" ở đầu dòng để GIỮ LẠI (whitelist), ví dụ: !.env.example
 #   - Dòng bắt đầu bằng "#" là ghi chú, sẽ bị bỏ qua
 #   - Dòng trống cũng bị bỏ qua
@@ -135,14 +136,14 @@ kubeconfig
 # 📦 JavaScript / Node.js / Frontend Build
 # =============================================================================
 node_modules
-dist
-build
+/dist
+/build
 .next
 .nuxt
 .turbo
 .parcel-cache
-out
-coverage
+/out
+/coverage
 .svelte-kit
 .pnpm-store
 .yarn/cache
@@ -151,7 +152,7 @@ coverage
 # =============================================================================
 # 🖥️ Electron / Desktop Build Output (Rất nặng, ~500MB - 1GB)
 # =============================================================================
-release
+/release
 dist-desktop
 dist-electron
 workbench-build
@@ -165,7 +166,7 @@ linux-unpacked
 __pycache__
 .venv
 venv
-env
+/env
 .pytest_cache
 .mypy_cache
 *.pyc
@@ -182,17 +183,17 @@ env
 # =============================================================================
 # ☕ Java / Kotlin / Gradle / Maven
 # =============================================================================
-target
+/target
 .gradle
-bin
+/bin
 
 # =============================================================================
 # 🔵 .NET / C# / C++
 # =============================================================================
-obj
-[Bb]in
-[Dd]ebug
-[Rr]elease
+/obj
+/[Bb]in
+/[Dd]ebug
+/[Rr]elease
 *.suo
 *.user
 
@@ -207,7 +208,7 @@ Pods
 # =============================================================================
 # 🐘 PHP / Composer
 # =============================================================================
-vendor
+/vendor
 
 # =============================================================================
 # 🔧 Version Control / IDE / Hệ Điều Hành
@@ -342,7 +343,7 @@ pnpm-debug.log*
 *.tmp
 *.temp
 .cache
-tmp
-temp
+/tmp
+/temp
 .eslintcache
 .stylelintcache

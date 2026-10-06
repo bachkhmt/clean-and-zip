@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-CleanZip Desktop UI v2.1
+CleanZip Desktop UI
 Giao diện trực quan, hiện đại cho tool CleanZip.
 Hỗ trợ dán nhanh, duyệt thư mục, lịch sử gần đây, chuyển đổi theme sáng/tối,
 tùy chọn bỏ qua media, mở trực tiếp file zip và thư mục Downloads,
 và chọn thêm thư mục / file cụ thể để loại bỏ (được nhớ theo từng dự án).
 """
 
-import json
 import os
+import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -19,40 +20,21 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from cleanzip import (
-    DEFAULT_EXCLUDES_FILE,
+    ExcludeMatcher,
+    PACKAGED_EXCLUDES_FILE,
+    USER_EXCLUDES_FILE,
+    build_patterns,
+    get_default_excludes_file,
     get_downloads_folder,
     human_size,
     resolve_exclude_paths,
+    scan_tree,
+    ZipCancelled,
     zip_project,
 )
-
-CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".cleanzip_config.json")
-
-
-def load_config():
-    default_cfg = {
-        "history": [],
-        "theme": "Dark",
-        "auto_open": True,
-        "skip_media": True,
-        "project_excludes": {},  # {đường_dẫn_dự_án: [{"path": rel, "kind": "dir"|"file"}, ...]}
-    }
-    try:
-        if os.path.isfile(CONFIG_FILE):
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                default_cfg.update(data)
-    except Exception:
-        pass
-    return default_cfg
-
-
-def save_config(cfg):
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+from config import load_config, save_config
+from size_explorer import SizeExplorer
+from version import __version__
 
 
 def get_resource_path(relative_path: str) -> str:
@@ -100,7 +82,7 @@ class CleanZipApp(ctk.CTk):
         ctk.set_appearance_mode(theme_mode)
         ctk.set_default_color_theme("blue")
 
-        self.title("CleanZip Desktop v2.1 - Nén Dự Án Gọn Sạch")
+        self.title(f"CleanZip Desktop v{__version__} - Nén Dự Án Gọn Sạch")
         screen_h = self.winfo_screenheight()
         self.geometry(f"760x{min(860, max(600, screen_h - 100))}")
         self.minsize(720, 560)
@@ -110,9 +92,7 @@ class CleanZipApp(ctk.CTk):
             try:
                 from ctypes import windll
                 # 1. Định danh AppUserModelID để Windows Taskbar hiển thị icon riêng của app
-                windll.shell32.SetCurrentProcessExplicitAppUserModelID("bachkhmt.cleanzip.desktop.v21")
-                # 2. DPI Awareness
-                windll.shcore.SetProcessDpiAwareness(1)
+                windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"bachkhmt.cleanzip.desktop.v{__version__}")
             except Exception:
                 pass
 
@@ -140,6 +120,16 @@ class CleanZipApp(ctk.CTk):
         self.excl_items = []   # [{"path": "data/raw", "kind": "dir"}, ...] - path tương đối so với dự án
         self.excl_key = None
         self._sync_job = None
+        self.size_explorer = None
+        self.scan_cache = None
+        self._scan_q = queue.Queue()
+        self._scan_gen = 0
+        self._scan_cancel = threading.Event()
+        self._scan_job = None
+        self._scan_poll_job = None
+        self._recent_map = {}
+        self._zip_q = queue.Queue()
+        self._cancel_event = threading.Event()
 
         self._build_ui()
         if sys.platform == "darwin":
@@ -186,7 +176,7 @@ class CleanZipApp(ctk.CTk):
 
         self.badge_label = ctk.CTkLabel(
             self.title_box,
-            text=" v2.1 Pro ",
+            text=f" v{__version__} Pro ",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="white",
             fg_color="#0284C7",
@@ -297,6 +287,27 @@ class CleanZipApp(ctk.CTk):
         )
         self.clear_btn.pack(side="left")
 
+        self.scan_frame = ctk.CTkFrame(self.input_card, fg_color="transparent")
+        self.scan_frame.pack(fill="x", padx=16, pady=(0, 8))
+        self.scan_label = ctk.CTkLabel(
+            self.scan_frame,
+            text="Chọn dự án để xem dung lượng.",
+            anchor="w",
+            font=ctk.CTkFont(size=11),
+            text_color=("gray35", "gray70"),
+        )
+        self.scan_label.pack(side="left", fill="x", expand=True)
+        self.scan_details_btn = ctk.CTkButton(
+            self.scan_frame, text="Xem chi tiết", width=86, height=25,
+            font=ctk.CTkFont(size=11), command=self.open_size_explorer,
+        )
+        self.scan_details_btn.pack(side="right", padx=(4, 0))
+        self.scan_stop_btn = ctk.CTkButton(
+            self.scan_frame, text="Dừng", width=54, height=25,
+            font=ctk.CTkFont(size=11), state="disabled", command=self._cancel_quick_scan,
+        )
+        self.scan_stop_btn.pack(side="right")
+
         # Khung chứa Lịch sử gần đây + Thông tin đích đến
         self.meta_frame = ctk.CTkFrame(self.input_card, fg_color="transparent")
         self.meta_frame.pack(fill="x", padx=16, pady=(0, 8))
@@ -320,6 +331,7 @@ class CleanZipApp(ctk.CTk):
             command=self._on_select_recent,
         )
         self.recent_menu.pack(side="left", padx=(0, 15))
+        self._refresh_recent_menu()
 
         # Vị trí lưu
         self.dest_info_label = ctk.CTkLabel(
@@ -343,6 +355,15 @@ class CleanZipApp(ctk.CTk):
             command=self._save_options,
         )
         self.skip_media_cb.pack(side="left", padx=(0, 20))
+        self.auto_scan_var = ctk.BooleanVar(value=self.cfg.get("auto_scan", True))
+        self.auto_scan_cb = ctk.CTkCheckBox(
+            self.options_frame,
+            text="Tự phân tích dung lượng",
+            variable=self.auto_scan_var,
+            font=ctk.CTkFont(size=12),
+            command=self._save_options,
+        )
+        self.auto_scan_cb.pack(side="left", padx=(0, 20))
 
         self.auto_open_var = ctk.BooleanVar(value=self.cfg.get("auto_open", True))
         self.auto_open_cb = ctk.CTkCheckBox(
@@ -379,9 +400,37 @@ class CleanZipApp(ctk.CTk):
         self.exclude_btns = ctk.CTkFrame(self.exclude_card, fg_color="transparent")
         self.exclude_btns.pack(fill="x", padx=16, pady=(0, 8))
 
+        self.size_btn = ctk.CTkButton(
+            self.exclude_btns,
+            text="📊 Xem dung lượng & chọn",
+            width=164,
+            height=34,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#0284C7",
+            hover_color="#0369A1",
+            corner_radius=8,
+            command=self.open_size_explorer,
+        )
+        self.size_btn.pack(side="left", padx=(0, 6))
+
+        self.edit_rules_btn = ctk.CTkButton(
+            self.exclude_btns,
+            text="📝 Sửa luật loại trừ",
+            width=126,
+            height=34,
+            font=ctk.CTkFont(size=12),
+            fg_color=("gray75", "gray28"),
+            hover_color=("gray65", "gray35"),
+            text_color=("gray10", "gray90"),
+            corner_radius=8,
+            command=self.open_excludes_file,
+        )
+        self.edit_rules_btn.pack(side="left", padx=(0, 6))
+
         self.add_folder_btn = ctk.CTkButton(
             self.exclude_btns,
             text="📁 Thêm thư mục",
+            width=116,
             height=34,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=("gray75", "gray28"),
@@ -395,6 +444,7 @@ class CleanZipApp(ctk.CTk):
         self.add_file_btn = ctk.CTkButton(
             self.exclude_btns,
             text="📄 Thêm file",
+            width=95,
             height=34,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=("gray75", "gray28"),
@@ -567,24 +617,43 @@ class CleanZipApp(ctk.CTk):
             ctk.set_appearance_mode("System")
             self.cfg["theme"] = "System"
         save_config(self.cfg)
+        if self.size_explorer is not None and self.size_explorer.winfo_exists():
+            self.size_explorer.style_tree()
 
     def _save_options(self):
         self.cfg["skip_media"] = self.skip_media_var.get()
         self.cfg["auto_open"] = self.auto_open_var.get()
+        self.cfg["auto_scan"] = self.auto_scan_var.get()
         save_config(self.cfg)
+        self.scan_cache = None
+        if self.auto_scan_var.get():
+            self._schedule_quick_scan()
+        else:
+            self._invalidate_quick_scan()
+            self.scan_label.configure(text="Tự phân tích dung lượng đang tắt.")
+            self.scan_stop_btn.configure(state="disabled")
 
     def _on_select_recent(self, choice):
-        if choice and not choice.startswith("("):
-            for p in self.recent_list:
-                if p in choice:
-                    self.path_entry.delete(0, "end")
-                    self.path_entry.insert(0, p)
-                    self._sync_project_excludes()
-                    self.status_label.configure(
-                        text=f"Đã chọn dự án từ lịch sử: {os.path.basename(p)}",
-                        text_color=("gray30", "gray75"),
-                    )
-                    break
+        path = self._recent_map.get(choice)
+        if path:
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, path)
+            self._sync_project_excludes()
+            self._schedule_quick_scan()
+            self.status_label.configure(
+                text=f"Đã chọn dự án từ lịch sử: {os.path.basename(path)}",
+                text_color=("gray30", "gray75"),
+            )
+
+    def _refresh_recent_menu(self):
+        self._recent_map = {}
+        labels = ["(Chọn dự án gần đây...)"]
+        for path in self.recent_list:
+            label = f"{os.path.basename(path)} ({path})"
+            self._recent_map[label] = path
+            labels.append(label)
+        if hasattr(self, "recent_menu"):
+            self.recent_menu.configure(values=labels)
 
     def _add_to_history(self, path):
         path = os.path.normpath(path)
@@ -595,8 +664,7 @@ class CleanZipApp(ctk.CTk):
         self.cfg["history"] = self.recent_list
         save_config(self.cfg)
 
-        recent_vals = ["(Chọn dự án gần đây...)"] + [os.path.basename(p) + f" ({p})" for p in self.recent_list]
-        self.recent_menu.configure(values=recent_vals)
+        self._refresh_recent_menu()
 
     def _auto_check_clipboard(self):
         try:
@@ -604,6 +672,7 @@ class CleanZipApp(ctk.CTk):
             if os.path.isdir(cb) and not self.path_entry.get().strip():
                 self.path_entry.insert(0, cb)
                 self._sync_project_excludes()
+                self._schedule_quick_scan()
                 self.status_label.configure(text=f"Đã tự động nhận diện thư mục từ clipboard: {os.path.basename(cb)}")
         except Exception:
             pass
@@ -614,6 +683,7 @@ class CleanZipApp(ctk.CTk):
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, content)
             self._sync_project_excludes()
+            self._schedule_quick_scan()
             if os.path.isdir(content):
                 self.status_label.configure(
                     text=f"Đã dán: {os.path.basename(content)}",
@@ -634,6 +704,7 @@ class CleanZipApp(ctk.CTk):
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, os.path.normpath(selected))
             self._sync_project_excludes()
+            self._schedule_quick_scan()
             self.status_label.configure(
                 text=f"Đã chọn: {os.path.basename(selected)}",
                 text_color=("gray30", "gray75"),
@@ -659,6 +730,136 @@ class CleanZipApp(ctk.CTk):
             except Exception:
                 pass
         self._sync_job = self.after(350, self._sync_project_excludes)
+        self._schedule_quick_scan()
+
+    def _invalidate_quick_scan(self):
+        self._scan_gen += 1
+        self._scan_cancel.set()
+        if self._scan_job is not None:
+            try:
+                self.after_cancel(self._scan_job)
+            except Exception:
+                pass
+            self._scan_job = None
+
+    def _schedule_quick_scan(self):
+        self._invalidate_quick_scan()
+        if not self.cfg.get("auto_scan", True):
+            return
+        if not self._current_project():
+            self.scan_cache = None
+            self.scan_label.configure(text="Chọn dự án để xem dung lượng.")
+            self.scan_stop_btn.configure(state="disabled")
+            return
+        self.scan_label.configure(text="Chuẩn bị phân tích dung lượng…")
+        self._scan_job = self.after(600, self._start_quick_scan)
+
+    def _start_quick_scan(self):
+        self._scan_job = None
+        project = self._current_project()
+        if not project or not self.cfg.get("auto_scan", True):
+            return
+        self._scan_cancel = threading.Event()
+        cancel = self._scan_cancel
+        gen = self._scan_gen
+        include_media = not self.skip_media_var.get()
+        self.scan_stop_btn.configure(state="normal")
+        self.scan_label.configure(text="Đang phân tích dung lượng…")
+
+        def work():
+            try:
+                matcher = ExcludeMatcher(build_patterns(include_media=include_media))
+                root, top_files = scan_tree(
+                    project, matcher, cancel=cancel,
+                    progress=lambda count, rel: self._scan_q.put((gen, "progress", count, rel)),
+                )
+                self._scan_q.put((gen, "done", project, include_media, root, top_files))
+            except Exception as exc:
+                self._scan_q.put((gen, "error", str(exc)))
+
+        threading.Thread(target=work, daemon=True).start()
+        if self._scan_poll_job is None:
+            self._scan_poll_job = self.after(100, self._poll_quick_scan)
+
+    def _poll_quick_scan(self):
+        self._scan_poll_job = None
+        try:
+            while True:
+                gen, kind, *data = self._scan_q.get_nowait()
+                if gen != self._scan_gen:
+                    continue
+                if kind == "progress":
+                    self.scan_label.configure(text=f"Đang phân tích… {data[0]:,} mục · {data[1] or '.'}")
+                elif kind == "done":
+                    project, include_media, root, top_files = data
+                    self.scan_stop_btn.configure(state="disabled")
+                    if root is None:
+                        self.scan_label.configure(text="Đã dừng phân tích dung lượng.")
+                        continue
+                    self.scan_cache = {
+                        "key": project,
+                        "include_media": include_media,
+                        "data": (root, top_files),
+                    }
+                    heavy_count, stack = 0, list(root.children)
+                    while stack:
+                        node = stack.pop()
+                        if node.kept_size >= 50 * 1024 ** 2:
+                            heavy_count += 1
+                        stack.extend(node.children)
+                    self.scan_label.configure(
+                        text=(f"📊 Tổng {human_size(root.size)} · Sẽ nén ≈ {human_size(root.kept_size)} · "
+                              f"{heavy_count} thư mục ≥ 50 MB (byte gốc, chưa nén zip).")
+                    )
+                elif kind == "error":
+                    self.scan_stop_btn.configure(state="disabled")
+                    self.scan_label.configure(text=f"Không thể phân tích dung lượng: {data[0]}")
+        except queue.Empty:
+            pass
+        if self._scan_job is None and not self._scan_cancel.is_set():
+            if self.scan_label.cget("text").startswith("Đang phân tích"):
+                self._scan_poll_job = self.after(100, self._poll_quick_scan)
+
+    def _cancel_quick_scan(self):
+        self._invalidate_quick_scan()
+        self.scan_stop_btn.configure(state="disabled")
+        self.scan_label.configure(text="Đã dừng phân tích dung lượng.")
+
+    def open_size_explorer(self):
+        if self.is_zipping:
+            return
+        project = self._require_project()
+        if not project:
+            return
+        if self.size_explorer is not None and self.size_explorer.winfo_exists():
+            self.size_explorer.lift()
+            self.size_explorer.focus_force()
+            return
+        project = os.path.abspath(project)
+        include_media = not self.skip_media_var.get()
+        cached_result = self.scan_cache
+        cached = cached_result["data"] if (
+            cached_result
+            and cached_result["key"] == project
+            and cached_result["include_media"] == include_media
+        ) else None
+        self.size_explorer = SizeExplorer(self, project, include_media=include_media, cached=cached)
+
+    def open_excludes_file(self):
+        target = USER_EXCLUDES_FILE
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            if not os.path.isfile(target):
+                shutil.copyfile(PACKAGED_EXCLUDES_FILE, target)
+            if sys.platform == "win32":
+                os.startfile(target)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", target])
+            else:
+                subprocess.Popen(["xdg-open", target])
+            self.status_label.configure(text=f"Đang mở luật loại trừ: {target}")
+        except (OSError, subprocess.SubprocessError) as exc:
+            messagebox.showerror("Không thể mở file", f"Không mở được file luật loại trừ:\n{target}\n\n{exc}")
 
     def _sync_project_excludes(self):
         """Nạp danh sách loại bỏ đã lưu của dự án đang chọn (mỗi dự án có danh sách riêng)."""
@@ -667,6 +868,8 @@ class CleanZipApp(ctk.CTk):
         key = self._project_key(project) if project else None
         if key == self.excl_key:
             return
+        if self.size_explorer is not None and self.size_explorer.winfo_exists():
+            self.size_explorer._on_close()
         self.excl_key = key
         store = self.cfg.get("project_excludes")
         saved = store.get(key, []) if (key and isinstance(store, dict)) else []
@@ -706,6 +909,8 @@ class CleanZipApp(ctk.CTk):
                 text_color=("gray40", "gray60"),
                 anchor="w",
             ).pack(fill="x", padx=12, pady=10)
+            if self.size_explorer is not None and self.size_explorer.winfo_exists():
+                self.size_explorer.refresh_status()
             return
 
         self.exclude_count_label.configure(text=f"{n} mục đã chọn")
@@ -741,6 +946,9 @@ class CleanZipApp(ctk.CTk):
                 text_color=("gray25", "gray80") if exists else ("#B45309", "#FBBF24"),
                 anchor="w",
             ).pack(side="left", fill="x", expand=True, padx=(6, 4))
+
+        if self.size_explorer is not None and self.size_explorer.winfo_exists():
+            self.size_explorer.refresh_status()
 
     def _require_project(self):
         project = self._current_project()
@@ -837,16 +1045,20 @@ class CleanZipApp(ctk.CTk):
         self.status_label.configure(text="Đã xóa toàn bộ danh sách loại bỏ thêm.", text_color=("gray30", "gray75"))
 
     def _set_exclude_controls(self, state: str):
+        self.size_btn.configure(state=state)
         self.add_folder_btn.configure(state=state)
         self.add_file_btn.configure(state=state)
         if state == "normal" and not self.excl_items:
             self.clear_excl_btn.configure(state="disabled")
         else:
             self.clear_excl_btn.configure(state=state)
+        if self.size_explorer is not None and self.size_explorer.winfo_exists():
+            self.size_explorer.refresh_status()
 
     def clear_input(self):
         self.path_entry.delete(0, "end")
         self._sync_project_excludes()
+        self._schedule_quick_scan()
         self.path_entry.focus()
         self.status_label.configure(text="Đã xóa ô nhập. Hãy dán hoặc chọn đường dẫn mới.", text_color=("gray30", "gray75"))
 
@@ -854,6 +1066,7 @@ class CleanZipApp(ctk.CTk):
         self.result_card.pack_forget()
         self.path_entry.delete(0, "end")
         self._sync_project_excludes()
+        self._schedule_quick_scan()
         self.path_entry.focus()
         self.progress_bar.set(0)
         self.status_label.configure(text="Sẵn sàng. Hãy dán đường dẫn thư mục dự án và bấm 'NÉN DỰ ÁN'.", text_color=("gray30", "gray75"))
@@ -879,7 +1092,8 @@ class CleanZipApp(ctk.CTk):
         exclude_paths = [it["path"] for it in self.excl_items]
 
         self.is_zipping = True
-        self.zip_btn.configure(state="disabled", text="⏳ Đang xử lý...")
+        self._cancel_event = threading.Event()
+        self.zip_btn.configure(state="normal", text="⏹ HỦY", command=self._cancel_zip)
         self.paste_btn.configure(state="disabled")
         self.browse_btn.configure(state="disabled")
         self.clear_btn.configure(state="disabled")
@@ -895,6 +1109,13 @@ class CleanZipApp(ctk.CTk):
 
         thread = threading.Thread(target=self._run_zip, args=(source, include_media, exclude_paths), daemon=True)
         thread.start()
+        self.after(80, self._poll_zip)
+
+    def _cancel_zip(self):
+        if self.is_zipping:
+            self._cancel_event.set()
+            self.zip_btn.configure(state="disabled", text="⏳ Đang hủy...")
+            self.status_label.configure(text="Đang hủy tác vụ và dọn file ZIP tạm…")
 
     def _run_zip(self, source_dir: str, include_media: bool, exclude_paths=None):
         try:
@@ -904,26 +1125,61 @@ class CleanZipApp(ctk.CTk):
             output_path = os.path.join(self.downloads_dir, zip_filename)
 
             def on_progress(stage, current, total, message):
-                self.after(0, self._update_progress, stage, current, total, message)
+                self._zip_q.put(("progress", stage, current, total, message))
 
             start_time = time.time()
             res = zip_project(
                 source_dir=source_dir,
                 output_path=output_path,
-                excludes_file=DEFAULT_EXCLUDES_FILE,
+                excludes_file=get_default_excludes_file(),
                 include_media=include_media,
                 exclude_paths=exclude_paths,
                 progress_callback=on_progress,
+                cancel_event=self._cancel_event,
             )
             res["manual_excluded"] = len(exclude_paths or [])
             elapsed = time.time() - start_time
-
-            self.last_zip_path = output_path
-            self.after(0, self._add_to_history, source_dir)
-            self.after(0, self._on_zip_success, res, elapsed)
-
+            self._zip_q.put(("success", res, elapsed, source_dir))
+        except ZipCancelled:
+            self._zip_q.put(("cancelled",))
         except Exception as e:
-            self.after(0, self._on_zip_error, str(e))
+            self._zip_q.put(("error", str(e)))
+
+    def _poll_zip(self):
+        try:
+            while True:
+                kind, *data = self._zip_q.get_nowait()
+                if kind == "progress":
+                    self._update_progress(*data)
+                elif kind == "success":
+                    res, elapsed, source_dir = data
+                    self.last_zip_path = res["output_path"]
+                    self._add_to_history(source_dir)
+                    self._on_zip_success(res, elapsed)
+                elif kind == "cancelled":
+                    self._on_zip_cancelled()
+                elif kind == "error":
+                    self._on_zip_error(data[0])
+        except queue.Empty:
+            pass
+        if self.is_zipping:
+            self.after(80, self._poll_zip)
+
+    def _restore_zip_controls(self):
+        self.is_zipping = False
+        self.zip_btn.configure(state="normal", text="⚡ NÉN DỰ ÁN (ZIP)", command=self.start_zip_thread)
+        self.paste_btn.configure(state="normal")
+        self.browse_btn.configure(state="normal")
+        self.clear_btn.configure(state="normal")
+        self._set_exclude_controls("normal")
+
+    def _on_zip_cancelled(self):
+        self._restore_zip_controls()
+        self.progress_bar.set(0)
+        self.status_label.configure(
+            text="Đã hủy. File ZIP tạm đã được dọn sạch.",
+            text_color=("gray30", "gray75"),
+        )
 
     def _update_progress(self, stage, current, total, message):
         self.status_label.configure(text=message, text_color=("gray30", "gray75"))
@@ -936,12 +1192,7 @@ class CleanZipApp(ctk.CTk):
             self.progress_bar.set(1.0)
 
     def _on_zip_success(self, res: dict, elapsed: float):
-        self.is_zipping = False
-        self.zip_btn.configure(state="normal", text="⚡ NÉN DỰ ÁN (ZIP)")
-        self.paste_btn.configure(state="normal")
-        self.browse_btn.configure(state="normal")
-        self.clear_btn.configure(state="normal")
-        self._set_exclude_controls("normal")
+        self._restore_zip_controls()
         self.progress_bar.set(1.0)
 
         out_name = os.path.basename(res["output_path"])
@@ -962,6 +1213,8 @@ class CleanZipApp(ctk.CTk):
         detail_text = f"• File kết quả: {out_name}\n• Vị trí: {res['output_path']}"
         if res.get("manual_excluded"):
             detail_text += f"\n• Loại bỏ thêm theo lựa chọn của bạn: {res['manual_excluded']} mục"
+        if res.get("skipped_symlinks"):
+            detail_text += f"\n• Bỏ qua {res['skipped_symlinks']} liên kết tượng trưng (symlink)"
         if res.get("missing_exclude_paths"):
             detail_text += f"\n⚠️ {len(res['missing_exclude_paths'])} mục bạn chọn không còn tồn tại trong dự án nên không có tác dụng."
         if res.get("failed_count"):
@@ -977,12 +1230,7 @@ class CleanZipApp(ctk.CTk):
             self.after(300, self.open_downloads_folder)
 
     def _on_zip_error(self, err_msg: str):
-        self.is_zipping = False
-        self.zip_btn.configure(state="normal", text="⚡ NÉN DỰ ÁN (ZIP)")
-        self.paste_btn.configure(state="normal")
-        self.browse_btn.configure(state="normal")
-        self.clear_btn.configure(state="normal")
-        self._set_exclude_controls("normal")
+        self._restore_zip_controls()
         self.progress_bar.set(0)
         self.status_label.configure(
             text=f"❌ Có lỗi xảy ra: {err_msg}",

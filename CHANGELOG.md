@@ -1,4 +1,17 @@
-# CleanZip: thêm tính năng loại bỏ file và thư mục tùy chọn
+# CleanZip — Nhật ký thay đổi
+
+## 2.2.0 — 05/10/2026
+
+- Thêm Size Explorer cho cây thư mục, top thư mục/file, quét nền và CLI `--sizes`.
+- Ghi ZIP qua file tạm, thay thế nguyên tử khi xong, kẹp timestamp cũ về mốc ZIP hợp lệ và hỗ trợ hủy.
+- Bỏ qua symlink, tối ưu so khớp luật, và nén file đã có compression bằng `ZIP_STORED`.
+- Đổi luật thư mục chung thành luật chỉ áp dụng ở gốc bằng prefix `/`; thêm file luật riêng trong `~/.cleanzip/`.
+- Chuyển cập nhật GUI từ worker sang hàng đợi, lưu cấu hình nguyên tử và sao lưu JSON hỏng thành `.bak`.
+- Thêm version module, test suite, tài liệu cập nhật và quy tắc line ending.
+
+## 2.1 — 30/09/2026
+
+### Thêm tính năng loại bỏ file và thư mục tùy chọn
 
 Ngày cập nhật: 30/09/2026
 Phiên bản nền: CleanZip v2.1 Pro (chưa đổi số phiên bản)
